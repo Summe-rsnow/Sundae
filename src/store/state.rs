@@ -1,11 +1,12 @@
+use crate::scoop::config::ScoopConfig;
 use crate::scoop::env::ScoopEnv;
 use crate::scoop::installed::{InstalledApp, InstalledManager};
 use crate::scoop::process::{LogLine, ScoopOp, TaskQueue};
 use crate::scoop::scanner::{BucketScanner, SearchIndex};
 use crate::scoop::updates::{AppUpdate, UpdatesManager};
 use nsh_core::prelude::*;
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
-use std::thread;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Route {
@@ -13,6 +14,7 @@ pub enum Route {
     Installed,
     Updates,
     Buckets,
+    Config,
 }
 
 #[derive(Clone)]
@@ -29,6 +31,7 @@ pub struct AppState {
     pub is_task_running: Signal<bool>,
     pub terminal_drawer_open: Signal<bool>,
     pub task_logs: Signal<Vec<LogLine>>,
+    pub scoop_config: Signal<ScoopConfig>,
     pub is_missing_scoop: Signal<bool>,
 }
 
@@ -56,50 +59,9 @@ impl AppState {
             is_task_running: signal(false),
             terminal_drawer_open: signal(false),
             task_logs: signal(Vec::new()),
+            scoop_config: signal(ScoopConfig::load()),
             is_missing_scoop: signal(is_missing),
         };
-
-        // Listen for task queue status events
-        let status_rx = state.task_queue.subscribe_status();
-        let is_running_sig = state.is_task_running;
-        let state_for_status = state.clone();
-
-        thread::spawn(move || {
-            while let Ok(status) = status_rx.recv() {
-                match status {
-                    crate::scoop::process::TaskStatus::Running(_) => {
-                        is_running_sig.set(true);
-                    }
-                    crate::scoop::process::TaskStatus::Success(_) => {
-                        is_running_sig.set(false);
-                        state_for_status.refresh_all();
-                    }
-                    crate::scoop::process::TaskStatus::Failed { .. }
-                    | crate::scoop::process::TaskStatus::Idle => {
-                        is_running_sig.set(false);
-                    }
-                }
-            }
-        });
-
-        // Listen for task queue logs in background thread and update signal
-        let log_rx = state.task_queue.subscribe_logs();
-        let logs_signal = state.task_logs;
-        let drawer_open = state.terminal_drawer_open;
-        thread::spawn(move || {
-            while let Ok(line) = log_rx.recv() {
-                logs_signal.update(|logs| {
-                    if logs.len() > 2000 {
-                        logs.drain(0..500); // Ring buffer
-                    }
-                    logs.push(line);
-                });
-                // Auto-open drawer when tasks run
-                if !drawer_open.get_untracked() {
-                    drawer_open.set(true);
-                }
-            }
-        });
 
         if !is_missing {
             state.refresh_all();
@@ -108,37 +70,65 @@ impl AppState {
         state
     }
 
-    pub fn refresh_all(&self) {
-        let env_clone = self.env.clone();
-        let is_indexing = self.is_indexing;
-        let search_index_sig = self.search_index;
-        let installed_sig = self.installed_apps;
-        let updates_sig = self.updates_list;
-        let missing_sig = self.is_missing_scoop;
-
-        is_indexing.set(true);
-
-        thread::spawn(move || {
-            let is_installed = env_clone.is_installed();
-            missing_sig.set(!is_installed);
-
-            if !is_installed {
-                is_indexing.set(false);
-                return;
+    pub fn poll_tasks(
+        &self,
+        status_rx: &Receiver<crate::scoop::process::TaskStatus>,
+        log_rx: &Receiver<LogLine>,
+    ) {
+        while let Ok(status) = status_rx.try_recv() {
+            match status {
+                crate::scoop::process::TaskStatus::Running(_) => {
+                    self.is_task_running.set(true);
+                }
+                crate::scoop::process::TaskStatus::Success(_) => {
+                    self.is_task_running.set(false);
+                    self.refresh_all();
+                }
+                crate::scoop::process::TaskStatus::Failed { .. }
+                | crate::scoop::process::TaskStatus::Idle => {
+                    self.is_task_running.set(false);
+                }
             }
+        }
 
-            // Scan local manifests
-            let index = BucketScanner::scan_buckets(&env_clone);
-            // Scan installed
-            let installed = InstalledManager::scan_installed(&env_clone);
-            // Check updates
-            let updates = UpdatesManager::check_updates(&installed, &index);
+        let mut new_logs = Vec::new();
+        while let Ok(line) = log_rx.try_recv() {
+            new_logs.push(line);
+        }
+        if !new_logs.is_empty() {
+            self.task_logs.update(|logs| {
+                if logs.len() > 2000 {
+                    logs.drain(0..500);
+                }
+                logs.extend(new_logs);
+            });
+            if !self.terminal_drawer_open.get_untracked() {
+                self.terminal_drawer_open.set(true);
+            }
+        }
+    }
 
-            search_index_sig.set(index);
-            installed_sig.set(installed);
-            updates_sig.set(updates);
-            is_indexing.set(false);
-        });
+    pub fn refresh_all(&self) {
+        if !self.env.is_installed() {
+            self.is_missing_scoop.set(true);
+            self.is_indexing.set(false);
+            return;
+        }
+
+        self.is_missing_scoop.set(false);
+        self.is_indexing.set(true);
+
+        // Scan local manifests via Rayon parallel threads
+        let index = BucketScanner::scan_buckets(&self.env);
+        // Scan installed applications
+        let installed = InstalledManager::scan_installed(&self.env);
+        // Check for updates
+        let updates = UpdatesManager::check_updates(&installed, &index);
+
+        self.search_index.set(index);
+        self.installed_apps.set(installed);
+        self.updates_list.set(updates);
+        self.is_indexing.set(false);
     }
 
     pub fn enqueue_op(&self, op: ScoopOp) {

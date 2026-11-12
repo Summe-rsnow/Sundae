@@ -53,32 +53,75 @@ impl InstalledManager {
             let is_held = app_path.join(".hold").exists()
                 || app_path.join("current").join(".hold").exists();
 
-            // Try current/manifest.json
             let current_dir = app_path.join("current");
-            let manifest_path = current_dir.join("manifest.json");
-
-            let version = if manifest_path.exists() {
-                Self::extract_version(&manifest_path).unwrap_or_else(|| "Unknown".to_string())
-            } else {
-                // Fallback: search any version directory under app_path
-                let mut found_ver = "Unknown".to_string();
-                if let Ok(ver_entries) = fs::read_dir(&app_path) {
-                    for v_entry in ver_entries.flatten() {
-                        let v_path = v_entry.path();
-                        if v_path.is_dir() {
-                            let v_manifest = v_path.join("manifest.json");
-                            if v_manifest.exists() {
-                                if let Some(v) = Self::extract_version(&v_manifest) {
-                                    found_ver = v;
-                                    break;
-                                }
-                            }
+            let target_dirs = if current_dir.exists() {
+                let mut dirs = vec![current_dir.clone()];
+                if let Ok(entries) = fs::read_dir(&app_path) {
+                    for e in entries.flatten() {
+                        let p = e.path();
+                        if p.is_dir() && p != current_dir {
+                            dirs.push(p);
                         }
                     }
                 }
-                found_ver
+                dirs
+            } else {
+                let mut dirs = Vec::new();
+                if let Ok(entries) = fs::read_dir(&app_path) {
+                    for e in entries.flatten() {
+                        let p = e.path();
+                        if p.is_dir() {
+                            dirs.push(p);
+                        }
+                    }
+                }
+                if dirs.is_empty() {
+                    dirs.push(app_path.clone());
+                }
+                dirs
             };
 
+            let manifest_names = [
+                "manifest.json",
+                "scoop-manifest.json",
+                "install.json",
+                "scoop-install.json",
+            ];
+
+            let mut found_version = "Unknown".to_string();
+            let mut found_manifest = current_dir.join("manifest.json");
+
+            for dir in &target_dirs {
+                for m_name in &manifest_names {
+                    let m_path = dir.join(m_name);
+                    if m_path.exists() {
+                        found_manifest = m_path.clone();
+                        if let Some(v) = Self::extract_version(&m_path) {
+                            found_version = v;
+                            break;
+                        }
+                    }
+                }
+                if found_version != "Unknown" {
+                    break;
+                }
+            }
+
+            // Fallback: directory name of version folder (e.g. apps/ghidra/12.2-20261016)
+            if found_version == "Unknown" {
+                for dir in &target_dirs {
+                    if let Some(dirname) = dir.file_name().and_then(|n| n.to_str()) {
+                        let lower = dirname.to_ascii_lowercase();
+                        if lower != "current" && lower != "cache" && lower != ".git" {
+                            found_version = dirname.to_string();
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let version = found_version;
+            let manifest_path = found_manifest;
             installed.push(InstalledApp {
                 name: app_name,
                 version,

@@ -7,6 +7,13 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
     let active_route = state.active_route;
     let missing_sig = state.is_missing_scoop;
 
+    let status_rx = state.task_queue.subscribe_status();
+    let log_rx = state.task_queue.subscribe_logs();
+    let s_poll = state.clone();
+
+    set_interval(std::time::Duration::from_millis(100), move || {
+        s_poll.poll_tasks(&status_rx, &log_rx);
+    });
     view()
         .flex_1()
         .bg(move || theme().background)
@@ -68,14 +75,14 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                 .gap_1()
                                 .child(nav_item(
                                     "探索",
-                                    search_icon(16.0),
+                                    "🔍",
                                     Route::Discover,
                                     active_route,
                                     || None,
                                 ))
                                 .child(nav_item(
                                     "已安装",
-                                    package_icon(16.0),
+                                    "📦",
                                     Route::Installed,
                                     active_route,
                                     {
@@ -85,7 +92,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                 ))
                                 .child(nav_item(
                                     "更新中心",
-                                    refresh_icon(16.0),
+                                    "🚀",
                                     Route::Updates,
                                     active_route,
                                     {
@@ -95,13 +102,20 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                 ))
                                 .child(nav_item(
                                     "仓库源",
-                                    bucket_icon(16.0),
+                                    "🪣",
                                     Route::Buckets,
                                     active_route,
                                     {
                                         let s = state.search_index;
                                         move || Some(format!("{}", s.with(|i| i.buckets().len())))
                                     },
+                                ))
+                                .child(nav_item(
+                                    "选项配置",
+                                    "⚙️",
+                                    Route::Config,
+                                    active_route,
+                                    || None,
                                 )),
                         )
                         .child(
@@ -123,7 +137,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                         .flex_row()
                                         .items_center()
                                         .gap_2()
-                                        .child(terminal_icon(15.0))
+                                        .child(text("🖥️").text_sm())
                                         .child(text("终端任务").text_xs().font_weight(FontWeight::MEDIUM)),
                                 )
                                 .child(
@@ -160,6 +174,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                         Route::Installed => crate::views::installed_view(s_route.clone()).into_element(),
                                         Route::Updates => crate::views::updates_view(s_route.clone()).into_element(),
                                         Route::Buckets => crate::views::buckets_view(s_route.clone()).into_element(),
+                                        Route::Config => crate::views::config_view(s_route.clone()).into_element(),
                                     }
                                 }
                             }
@@ -181,7 +196,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
 
 fn nav_item(
     label: &'static str,
-    icon: impl IntoElement,
+    emoji: &'static str,
     route: Route,
     active_route: Signal<Route>,
     count_badge: impl Fn() -> Option<String> + 'static,
@@ -213,7 +228,7 @@ fn nav_item(
                 .flex_row()
                 .items_center()
                 .gap_2p5()
-                .child(icon)
+                .child(text(emoji).text_base())
                 .child(
                     text(label)
                         .text_sm()

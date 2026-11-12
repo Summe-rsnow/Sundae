@@ -23,6 +23,8 @@ fn test_app_state_routes_and_queue() {
     state.active_route.set(Route::Buckets);
     assert_eq!(state.active_route.get(), Route::Buckets);
 
+    state.active_route.set(Route::Config);
+    assert_eq!(state.active_route.get(), Route::Config);
     // Verify drawer toggle
     assert!(!state.terminal_drawer_open.get());
     state.terminal_drawer_open.set(true);
