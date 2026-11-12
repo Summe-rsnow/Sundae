@@ -165,6 +165,7 @@ pub fn installed_view(state: AppState) -> impl IntoElement {
 
                     scroll()
                         .flex_1()
+                        .pr_4()
                         .child(list_container)
                         .into_element()
                 }

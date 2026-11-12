@@ -53,6 +53,7 @@ pub fn buckets_view(state: AppState) -> impl IntoElement {
             // Body container with scroll
             scroll()
                 .flex_1()
+                .pr_4()
                 .child(
                     view()
                         .gap_6()

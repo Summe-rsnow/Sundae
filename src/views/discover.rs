@@ -214,6 +214,7 @@ pub fn discover_view(state: AppState) -> impl IntoElement {
 
                     scroll()
                         .flex_1()
+                        .pr_4()
                         .child(list)
                         .into_element()
                 }

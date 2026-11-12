@@ -97,6 +97,7 @@ pub fn config_view(state: AppState) -> impl IntoElement {
             // Scrollable Settings Sections
             scroll()
                 .flex_1()
+                .pr_4()
                 .child(
                     view()
                         .gap_6()
