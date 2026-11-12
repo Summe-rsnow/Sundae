@@ -155,8 +155,8 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                             } else {
                                 match active_route.get() {
                                     Route::Discover => crate::views::discover_view(state.clone()).into_element(),
-                                    Route::Installed => text("Installed View (Pending)").into_element(),
-                                    Route::Updates => text("Updates View (Pending)").into_element(),
+                                    Route::Installed => crate::views::installed_view(state.clone()).into_element(),
+                                    Route::Updates => crate::views::updates_view(state.clone()).into_element(),
                                     Route::Buckets => text("Buckets View (Pending)").into_element(),
                                 }
                             }
