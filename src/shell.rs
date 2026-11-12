@@ -75,7 +75,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                 .gap_1()
                                 .child(nav_item(
                                     "探索",
-                                    search_icon(16.0),
+                                    search_icon_light(16.0),
                                     Route::Discover,
                                     active_route,
                                     || None,

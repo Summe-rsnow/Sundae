@@ -1,6 +1,6 @@
 //! Runs the Rust application directly on the machine's native backend.
 
-#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+// #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 #[cfg(target_os = "linux")]
 use nsh_platform_linux as platform;
