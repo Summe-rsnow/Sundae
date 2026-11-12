@@ -149,20 +149,34 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                     view()
                         .flex_1()
                         .h_full()
-                        .child(dynamic(move || {
-                            if missing_sig.get() {
-                                missing_scoop_view(state.clone()).into_element()
-                            } else {
-                                match active_route.get() {
-                                    Route::Discover => crate::views::discover_view(state.clone()).into_element(),
-                                    Route::Installed => crate::views::installed_view(state.clone()).into_element(),
-                                    Route::Updates => crate::views::updates_view(state.clone()).into_element(),
-                                    Route::Buckets => text("Buckets View (Pending)").into_element(),
+                        .child(dynamic({
+                            let s_route = state.clone();
+                            move || {
+                                if missing_sig.get() {
+                                    missing_scoop_view(s_route.clone()).into_element()
+                                } else {
+                                    match active_route.get() {
+                                        Route::Discover => crate::views::discover_view(s_route.clone()).into_element(),
+                                        Route::Installed => crate::views::installed_view(s_route.clone()).into_element(),
+                                        Route::Updates => crate::views::updates_view(s_route.clone()).into_element(),
+                                        Route::Buckets => crate::views::buckets_view(s_route.clone()).into_element(),
+                                    }
                                 }
                             }
                         })),
                 ),
-        )
+            )
+        .child(dynamic({
+            let s = state.clone();
+            let drawer_open = state.terminal_drawer_open;
+            move || {
+                if drawer_open.get() {
+                    crate::views::terminal_drawer(s.clone()).into_element()
+                } else {
+                    view().into_element()
+                }
+            }
+        }))
 }
 
 fn nav_item(
