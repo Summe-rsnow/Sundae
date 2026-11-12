@@ -156,9 +156,11 @@ impl InstalledManager {
                 }
             }
 
-            // Check failed status: if current does not exist and no manifest was found, or version directory is empty
-            let is_failed = (!current_dir.exists() && found_version == "Unknown")
-                || (!current_dir.exists() && Self::is_dir_empty(&app_path));
+            let has_valid_manifest = target_dirs.iter().any(|d| {
+                manifest_names.iter().any(|m| d.join(m).exists())
+            });
+
+            let is_failed = !current_dir.exists() || !has_valid_manifest;
 
             let status = if is_failed {
                 AppInstallStatus::Failed
@@ -168,8 +170,12 @@ impl InstalledManager {
                 AppInstallStatus::Installed
             };
 
-            let version = if is_failed && found_version == "Unknown" {
-                "安装失败".to_string()
+            let version = if is_failed {
+                if found_version != "Unknown" {
+                    format!("{} (安装未完成)", found_version)
+                } else {
+                    "安装未完成".to_string()
+                }
             } else {
                 found_version
             };
@@ -188,13 +194,6 @@ impl InstalledManager {
         installed
     }
 
-    fn is_dir_empty(path: &PathBuf) -> bool {
-        if let Ok(mut entries) = fs::read_dir(path) {
-            entries.next().is_none()
-        } else {
-            true
-        }
-    }
 
     fn extract_version(manifest_path: &PathBuf) -> Option<String> {
         let content = fs::read_to_string(manifest_path).ok()?;
