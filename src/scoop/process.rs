@@ -36,7 +36,7 @@ impl ScoopOp {
                 args
             }
             ScoopOp::BucketRm(name) => vec!["bucket".into(), "rm".into(), name.clone()],
-            ScoopOp::BucketUpdate => vec!["bucket".into(), "known".into()],
+            ScoopOp::BucketUpdate => vec!["update".into()],
             ScoopOp::Custom(args) => args.clone(),
         }
     }
@@ -74,6 +74,7 @@ pub enum TaskStatus {
 pub struct TaskQueue {
     sender: Sender<ScoopOp>,
     log_subscribers: Arc<Mutex<Vec<Sender<LogLine>>>>,
+    status_subscribers: Arc<Mutex<Vec<Sender<TaskStatus>>>>,
     status: Arc<Mutex<TaskStatus>>,
     active_child: Arc<Mutex<Option<Child>>>,
 }
@@ -88,22 +89,28 @@ impl TaskQueue {
     pub fn new() -> Self {
         let (sender, receiver) = channel::<ScoopOp>();
         let log_subscribers = Arc::new(Mutex::new(Vec::<Sender<LogLine>>::new()));
+        let status_subscribers = Arc::new(Mutex::new(Vec::<Sender<TaskStatus>>::new()));
         let status = Arc::new(Mutex::new(TaskStatus::Idle));
         let active_child = Arc::new(Mutex::new(None));
 
         let worker_subscribers = Arc::clone(&log_subscribers);
+        let worker_status_subs = Arc::clone(&status_subscribers);
         let worker_status = Arc::clone(&status);
         let worker_child = Arc::clone(&active_child);
-
         thread::spawn(move || {
             while let Ok(op) = receiver.recv() {
-                *worker_status.lock() = TaskStatus::Running(op.clone());
+                let broadcast_status = |st: TaskStatus| {
+                    *worker_status.lock() = st.clone();
+                    let mut subs = worker_status_subs.lock();
+                    subs.retain(|sub| sub.send(st.clone()).is_ok());
+                };
+
+                broadcast_status(TaskStatus::Running(op.clone()));
 
                 let broadcast = |text: String, is_err: bool| {
                     let mut subs = worker_subscribers.lock();
                     subs.retain(|sub| sub.send(LogLine { text: text.clone(), is_err }).is_ok());
                 };
-
                 broadcast(format!(">>> Starting: {}", op.display_name()), false);
 
                 let mut cmd = match &op {
@@ -180,17 +187,17 @@ impl TaskQueue {
                 match exit_status {
                     Some(s) if s.success() => {
                         broadcast(format!("✓ Completed: {}", op.display_name()), false);
-                        *worker_status.lock() = TaskStatus::Success(op);
+                        broadcast_status(TaskStatus::Success(op));
                     }
                     Some(s) => {
                         let msg = format!("✖ Failed with exit code: {}", s.code().unwrap_or(-1));
                         broadcast(msg.clone(), true);
-                        *worker_status.lock() = TaskStatus::Failed { op, error: msg };
+                        broadcast_status(TaskStatus::Failed { op, error: msg });
                     }
                     None => {
                         let msg = "Process terminated or cancelled".to_string();
                         broadcast(msg.clone(), true);
-                        *worker_status.lock() = TaskStatus::Failed { op, error: msg };
+                        broadcast_status(TaskStatus::Failed { op, error: msg });
                     }
                 }
             }
@@ -199,6 +206,7 @@ impl TaskQueue {
         Self {
             sender,
             log_subscribers,
+            status_subscribers,
             status,
             active_child,
         }
@@ -211,8 +219,22 @@ impl TaskQueue {
     pub fn cancel_current(&self) {
         let mut lock = self.active_child.lock();
         if let Some(mut child) = lock.take() {
+            #[cfg(target_os = "windows")]
+            {
+                let pid = child.id();
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .spawn()
+                    .and_then(|mut k| k.wait());
+            }
             let _ = child.kill();
         }
+    }
+
+    pub fn subscribe_status(&self) -> Receiver<TaskStatus> {
+        let (tx, rx) = channel();
+        self.status_subscribers.lock().push(tx);
+        rx
     }
 
     pub fn current_status(&self) -> TaskStatus {

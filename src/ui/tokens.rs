@@ -31,8 +31,19 @@ pub mod status_color {
     pub fn danger() -> Rgba {
         rgb(0xef4444) // Red 500
     }
-
     pub fn info() -> Rgba {
         rgb(0x3b82f6) // Blue 500
     }
+}
+
+pub mod terminal_color {
+    use nsh_core::prelude::*;
+
+    pub fn bg() -> Rgba { rgb(0x18181b) }
+    pub fn header_bg() -> Rgba { rgb(0x27272a) }
+    pub fn border() -> Rgba { rgb(0x3f3f46) }
+    pub fn title_text() -> Rgba { rgb(0xf4f4f5) }
+    pub fn muted_text() -> Rgba { rgb(0x71717a) }
+    pub fn error_text() -> Rgba { rgb(0xf87171) }
+    pub fn output_text() -> Rgba { rgb(0xe4e4e7) }
 }

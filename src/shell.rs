@@ -132,9 +132,9 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                         .h(px(8.0))
                                         .rounded(px(999.0))
                                         .bg({
-                                            let q = state.task_queue.clone();
+                                            let is_running = state.is_task_running;
                                             move || {
-                                                if q.is_running() {
+                                                if is_running.get() {
                                                     status_color::warning()
                                                 } else {
                                                     status_color::success()

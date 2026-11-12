@@ -26,6 +26,7 @@ pub struct AppState {
     pub updates_list: Signal<Vec<AppUpdate>>,
     pub task_queue: Arc<TaskQueue>,
     pub is_indexing: Signal<bool>,
+    pub is_task_running: Signal<bool>,
     pub terminal_drawer_open: Signal<bool>,
     pub task_logs: Signal<Vec<LogLine>>,
     pub is_missing_scoop: Signal<bool>,
@@ -52,16 +53,39 @@ impl AppState {
             updates_list: signal(Vec::new()),
             task_queue: Arc::new(TaskQueue::new()),
             is_indexing: signal(false),
+            is_task_running: signal(false),
             terminal_drawer_open: signal(false),
             task_logs: signal(Vec::new()),
             is_missing_scoop: signal(is_missing),
         };
 
+        // Listen for task queue status events
+        let status_rx = state.task_queue.subscribe_status();
+        let is_running_sig = state.is_task_running;
+        let state_for_status = state.clone();
+
+        thread::spawn(move || {
+            while let Ok(status) = status_rx.recv() {
+                match status {
+                    crate::scoop::process::TaskStatus::Running(_) => {
+                        is_running_sig.set(true);
+                    }
+                    crate::scoop::process::TaskStatus::Success(_) => {
+                        is_running_sig.set(false);
+                        state_for_status.refresh_all();
+                    }
+                    crate::scoop::process::TaskStatus::Failed { .. }
+                    | crate::scoop::process::TaskStatus::Idle => {
+                        is_running_sig.set(false);
+                    }
+                }
+            }
+        });
+
         // Listen for task queue logs in background thread and update signal
         let log_rx = state.task_queue.subscribe_logs();
         let logs_signal = state.task_logs;
         let drawer_open = state.terminal_drawer_open;
-
         thread::spawn(move || {
             while let Ok(line) = log_rx.recv() {
                 logs_signal.update(|logs| {

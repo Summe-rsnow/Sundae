@@ -1,4 +1,5 @@
 use crate::store::AppState;
+use crate::ui::tokens::terminal_color;
 use crate::ui::*;
 use nsh_base::theme;
 use nsh_core::prelude::*;
@@ -7,11 +8,12 @@ pub fn terminal_drawer(state: AppState) -> impl IntoElement {
     let logs_sig = state.task_logs;
     let drawer_open_sig = state.terminal_drawer_open;
     let queue = state.task_queue.clone();
+    let is_running_sig = state.is_task_running;
 
     view()
         .w_full()
         .h(px(260.0))
-        .bg(rgb(0x18181b)) // Dark terminal surface
+        .bg(move || terminal_color::bg())
         .border_t_1()
         .border_color(move || theme().border)
         .child(
@@ -22,20 +24,19 @@ pub fn terminal_drawer(state: AppState) -> impl IntoElement {
                 .justify_between()
                 .px_4()
                 .py_2()
-                .bg(rgb(0x27272a))
+                .bg(move || terminal_color::header_bg())
                 .border_b_1()
-                .border_color(rgb(0x3f3f46))
+                .border_color(move || terminal_color::border())
                 .child(
                     view()
                         .flex_row()
                         .items_center()
                         .gap_3()
                         .child(terminal_icon(15.0))
-                        .child(text("任务执行终端").text_xs().font_weight(FontWeight::BOLD).text_color(rgb(0xf4f4f5)))
+                        .child(text("任务执行终端").text_xs().font_weight(FontWeight::BOLD).text_color(move || terminal_color::title_text()))
                         .child(dynamic({
-                            let q = queue.clone();
                             move || {
-                                if q.is_running() {
+                                if is_running_sig.get() {
                                     app_badge("正在执行", BadgeVariant::Warning).into_element()
                                 } else {
                                     app_badge("就绪", BadgeVariant::Secondary).into_element()
@@ -76,7 +77,7 @@ pub fn terminal_drawer(state: AppState) -> impl IntoElement {
                                 .child(
                                     text("等待任务执行... (安装、更新或卸载时将在此输出实时控制台日志)")
                                         .text_xs()
-                                        .text_color(rgb(0x71717a)),
+                                        .text_color(move || terminal_color::muted_text()),
                                 )
                                 .into_element();
                         }
@@ -89,10 +90,12 @@ pub fn terminal_drawer(state: AppState) -> impl IntoElement {
                                 text(line.text)
                                     .text_xs()
                                     .font_family("Consolas")
-                                    .text_color(if is_err {
-                                        rgb(0xf87171) // Red 400
-                                    } else {
-                                        rgb(0xe4e4e7) // Zinc 200
+                                    .text_color(move || {
+                                        if is_err {
+                                            terminal_color::error_text()
+                                        } else {
+                                            terminal_color::output_text()
+                                        }
                                     }),
                             );
                         }

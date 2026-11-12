@@ -17,6 +17,7 @@ fn test_scoop_op_args() {
         ScoopOp::BucketAdd { name: "custom".into(), url: Some("https://example.com/b".into()) }.to_args(),
         vec!["bucket", "add", "custom", "https://example.com/b"]
     );
+    assert_eq!(ScoopOp::BucketUpdate.to_args(), vec!["update"]);
 }
 
 #[test]
