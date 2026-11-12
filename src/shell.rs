@@ -205,19 +205,19 @@ fn nav_item(
         .flex_row()
         .items_center()
         .justify_between()
-        .px_3()
+        .px_2p5()
         .py_2()
         .rounded(move || theme().radius)
         .bg(move || {
             if active_route.get() == route {
-                theme().primary.opacity(0.12)
+                theme().primary.opacity(0.14)
             } else {
                 theme().primary.opacity(0.0)
             }
         })
         .hover(move |s| {
             if active_route.get() != route {
-                s.bg(theme().muted.opacity(0.4))
+                s.bg(theme().muted.opacity(0.45))
             } else {
                 s
             }
@@ -227,11 +227,23 @@ fn nav_item(
             view()
                 .flex_row()
                 .items_center()
-                .gap_2p5()
+                .gap_2()
+                .child(
+                    view()
+                        .w(px(3.0))
+                        .h(px(14.0))
+                        .rounded(px(999.0))
+                        .bg(move || {
+                            if active_route.get() == route {
+                                theme().primary
+                            } else {
+                                theme().primary.opacity(0.0)
+                            }
+                        }),
+                )
                 .child(icon)
                 .child(
                     text(label)
-                        .text_sm()
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(move || {
                             if active_route.get() == route {

@@ -181,10 +181,10 @@ pub fn buckets_view(state: AppState) -> impl IntoElement {
                                         .child(
                                             view()
                                                 .w(px(200.0))
-                                                .child(search_bar("源名称 (例如: dorado)", new_bucket_name, move |t| new_bucket_name.set(t))),
+                                                .child(app_text_field("源名称 (例如: dorado)", new_bucket_name, move |t| new_bucket_name.set(t))),
                                         )
                                         .child(
-                                            search_bar("Git 仓库地址 (可选，支持 https://...)", new_bucket_url, move |t| new_bucket_url.set(t)),
+                                            app_text_field("Git 仓库地址 (可选，支持 https://...)", new_bucket_url, move |t| new_bucket_url.set(t)),
                                         )
                                         .child(app_button("确认添加", ButtonVariant::Primary, ButtonSize::Md, {
                                             let s = state.clone();

@@ -116,7 +116,7 @@ pub fn config_view(state: AppState) -> impl IntoElement {
                                     view()
                                         .gap_2()
                                         .child(text("HTTP / SOCKS 代理地址 (例如 127.0.0.1:7890，留空或设为 default 为系统代理，设为 none 直连):").text_xs().text_color(move || theme().muted_foreground))
-                                        .child(search_bar("代理地址...", proxy_input, move |t| proxy_input.set(t)))
+                                        .child(app_text_field("代理地址...", proxy_input, move |t| proxy_input.set(t)))
                                         .child(
                                             view()
                                                 .flex_row()
@@ -130,7 +130,7 @@ pub fn config_view(state: AppState) -> impl IntoElement {
                                     view()
                                         .gap_2()
                                         .child(text("GitHub Token (可选，配置后可避免 GitHub API 速率限制或用于私有仓库):").text_xs().text_color(move || theme().muted_foreground))
-                                        .child(search_bar("ghp_xxxxxxxxxxxx", token_input, move |t| token_input.set(t))),
+                                        .child(app_text_field("ghp_xxxxxxxxxxxx", token_input, move |t| token_input.set(t)))
                                 ),
                         )
                         .child(
@@ -176,7 +176,7 @@ pub fn config_view(state: AppState) -> impl IntoElement {
                                         .child(
                                             view()
                                                 .w(px(200.0))
-                                                .child(search_bar("分块并发数 (默认 5)", aria2_split, move |t| aria2_split.set(t))),
+                                                .child(app_text_field("分块并发数 (默认 5)", aria2_split, move |t| aria2_split.set(t)))
                                         ),
                                 ),
                         )
@@ -196,7 +196,7 @@ pub fn config_view(state: AppState) -> impl IntoElement {
                                     view()
                                         .gap_2()
                                         .child(text("Scoop 源码仓库地址 (scoop_repo):").text_xs().text_color(move || theme().muted_foreground))
-                                        .child(search_bar("Scoop Git 仓库 URL...", repo_input, move |t| repo_input.set(t)))
+                                        .child(app_text_field("Scoop Git 仓库 URL...", repo_input, move |t| repo_input.set(t)))
                                         .child(
                                             view()
                                                 .flex_row()
@@ -216,7 +216,7 @@ pub fn config_view(state: AppState) -> impl IntoElement {
                                                 .child(
                                                     view()
                                                         .w(px(200.0))
-                                                        .child(search_bar("分支名称", branch_input, move |t| branch_input.set(t))),
+                                                        .child(app_text_field("分支名称", branch_input, move |t| branch_input.set(t)))
                                                 )
                                                 .child(app_button("master (稳定)", ButtonVariant::Secondary, ButtonSize::Sm, move || branch_input.set("master".into())))
                                                 .child(app_button("develop (预览)", ButtonVariant::Secondary, ButtonSize::Sm, move || branch_input.set("develop".into()))),
