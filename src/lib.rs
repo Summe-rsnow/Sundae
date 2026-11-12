@@ -1,6 +1,8 @@
 //! The app's Rust UI: its root component, which `nsh run`, `nsh package`
 //! and `cargo run` mount.
 
+pub mod scoop;
+
 use nsh_core::prelude::*;
 use nsh_base::theme;
 
