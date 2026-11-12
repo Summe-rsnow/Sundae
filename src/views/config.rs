@@ -109,7 +109,8 @@ pub fn config_view(state: AppState) -> impl IntoElement {
                                         .flex_row()
                                         .items_center()
                                         .gap_2()
-                                        .child(text("🌐 网络代理与 GitHub 访问").text_base().font_weight(FontWeight::BOLD)),
+                                        .child(globe_icon(18.0))
+                                        .child(text("网络代理与 GitHub 访问").text_base().font_weight(FontWeight::BOLD)),
                                 )
                                 .child(
                                     view()
@@ -141,7 +142,8 @@ pub fn config_view(state: AppState) -> impl IntoElement {
                                         .flex_row()
                                         .items_center()
                                         .gap_2()
-                                        .child(text("⚡ Aria2 多线程下载加速").text_base().font_weight(FontWeight::BOLD)),
+                                        .child(zap_icon(18.0))
+                                        .child(text("Aria2 多线程下载加速").text_base().font_weight(FontWeight::BOLD)),
                                 )
                                 .child(
                                     view()
@@ -187,7 +189,8 @@ pub fn config_view(state: AppState) -> impl IntoElement {
                                         .flex_row()
                                         .items_center()
                                         .gap_2()
-                                        .child(text("📦 Scoop 源仓库镜像与分支").text_base().font_weight(FontWeight::BOLD)),
+                                        .child(git_branch_icon(18.0))
+                                        .child(text("Scoop 源仓库镜像与分支").text_base().font_weight(FontWeight::BOLD)),
                                 )
                                 .child(
                                     view()
@@ -229,7 +232,8 @@ pub fn config_view(state: AppState) -> impl IntoElement {
                                         .flex_row()
                                         .items_center()
                                         .gap_2()
-                                        .child(text("🛠️ 高级与兼容性设置").text_base().font_weight(FontWeight::BOLD)),
+                                        .child(sliders_icon(18.0))
+                                        .child(text("高级与兼容性设置").text_base().font_weight(FontWeight::BOLD)),
                                 )
                                 .child(
                                     view()

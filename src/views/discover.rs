@@ -135,8 +135,9 @@ pub fn discover_view(state: AppState) -> impl IntoElement {
                             .flex_1()
                             .items_center()
                             .justify_center()
-                            .gap_2()
-                            .child(text("🔍 没有找到符合条件的应用").text_base().font_weight(FontWeight::MEDIUM))
+                            .gap_3()
+                            .child(search_icon(36.0))
+                            .child(text("没有找到符合条件的应用").text_base().font_weight(FontWeight::MEDIUM))
                             .child(text("请检查搜索关键词或尝试切换 Bucket 源").text_xs().text_color(move || theme().muted_foreground))
                             .into_element();
                     }

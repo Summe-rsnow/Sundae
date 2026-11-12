@@ -14,12 +14,12 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
     set_interval(std::time::Duration::from_millis(100), move || {
         s_poll.poll_tasks(&status_rx, &log_rx);
     });
+
     view()
         .flex_1()
         .bg(move || theme().background)
         .text_color(move || theme().foreground)
         .child(
-            // If Scoop is missing: show onboarding warning banner
             view()
                 .flex_1()
                 .flex_row()
@@ -34,7 +34,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                         .p_4()
                         .gap_2()
                         .child(
-                            // Brand Header
+                            // Brand Header with Vector Sundae Logo
                             view()
                                 .flex_row()
                                 .items_center()
@@ -46,8 +46,8 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                     view()
                                         .flex_row()
                                         .items_center()
-                                        .gap_2()
-                                        .child(text("🍦").text_xl())
+                                        .gap_2p5()
+                                        .child(sundae_logo(30.0))
                                         .child(
                                             view()
                                                 .child(text("Sundae").text_base().font_weight(FontWeight::BOLD))
@@ -75,14 +75,14 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                 .gap_1()
                                 .child(nav_item(
                                     "探索",
-                                    "🔍",
+                                    search_icon(16.0),
                                     Route::Discover,
                                     active_route,
                                     || None,
                                 ))
                                 .child(nav_item(
                                     "已安装",
-                                    "📦",
+                                    package_icon(16.0),
                                     Route::Installed,
                                     active_route,
                                     {
@@ -92,7 +92,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                 ))
                                 .child(nav_item(
                                     "更新中心",
-                                    "🚀",
+                                    refresh_icon(16.0),
                                     Route::Updates,
                                     active_route,
                                     {
@@ -102,7 +102,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                 ))
                                 .child(nav_item(
                                     "仓库源",
-                                    "🪣",
+                                    bucket_icon(16.0),
                                     Route::Buckets,
                                     active_route,
                                     {
@@ -112,7 +112,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                 ))
                                 .child(nav_item(
                                     "选项配置",
-                                    "⚙️",
+                                    settings_icon(16.0),
                                     Route::Config,
                                     active_route,
                                     || None,
@@ -137,7 +137,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                                         .flex_row()
                                         .items_center()
                                         .gap_2()
-                                        .child(text("🖥️").text_sm())
+                                        .child(terminal_icon(15.0))
                                         .child(text("终端任务").text_xs().font_weight(FontWeight::MEDIUM)),
                                 )
                                 .child(
@@ -180,7 +180,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
                             }
                         })),
                 ),
-            )
+        )
         .child(dynamic({
             let s = state.clone();
             let drawer_open = state.terminal_drawer_open;
@@ -196,7 +196,7 @@ pub fn shell_view(state: AppState) -> impl IntoElement {
 
 fn nav_item(
     label: &'static str,
-    emoji: &'static str,
+    icon: impl IntoElement,
     route: Route,
     active_route: Signal<Route>,
     count_badge: impl Fn() -> Option<String> + 'static,
@@ -228,7 +228,7 @@ fn nav_item(
                 .flex_row()
                 .items_center()
                 .gap_2p5()
-                .child(text(emoji).text_base())
+                .child(icon)
                 .child(
                     text(label)
                         .text_sm()
@@ -266,7 +266,14 @@ fn missing_scoop_view(state: AppState) -> impl IntoElement {
                 .max_w(px(520.0))
                 .items_center()
                 .gap_4()
-                .child(text("⚠️ 未检测到 Scoop 环境").text_lg().font_weight(FontWeight::BOLD))
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(alert_circle_icon(22.0))
+                        .child(text("未检测到 Scoop 环境").text_lg().font_weight(FontWeight::BOLD)),
+                )
                 .child(
                     text("Sundae 需要依赖本地已安装的 Scoop 包管理器。未在 %USERPROFILE%\\scoop 找到相关目录。")
                         .text_sm()

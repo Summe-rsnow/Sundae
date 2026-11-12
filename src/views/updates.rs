@@ -68,9 +68,9 @@ pub fn updates_view(state: AppState) -> impl IntoElement {
                                     .p_4()
                                     .rounded(px(999.0))
                                     .bg(move || status_color::success().opacity(0.12))
-                                    .child(check_icon(32.0)),
+                                    .child(shield_check_icon(36.0)),
                             )
-                            .child(text("🎉 所有已安装应用均为最新版本").text_base().font_weight(FontWeight::BOLD))
+                            .child(text("所有已安装应用均为最新版本").text_base().font_weight(FontWeight::BOLD))
                             .child(text("Scoop 本地仓库已与当前 Bucket 保持一致").text_xs().text_color(move || theme().muted_foreground))
                             .into_element();
                     }
@@ -104,7 +104,7 @@ pub fn updates_view(state: AppState) -> impl IntoElement {
                                                 .items_center()
                                                 .gap_2()
                                                 .child(text(format!("当前: v{}", item.current_version)).text_xs().text_color(move || theme().muted_foreground))
-                                                .child(text("→").text_xs().text_color(move || theme().muted_foreground))
+                                                .child(arrow_right_icon(14.0))
                                                 .child(text(format!("最新: v{}", item.latest_version)).text_xs().font_weight(FontWeight::BOLD).text_color(move || status_color::success())),
                                         ),
                                 )

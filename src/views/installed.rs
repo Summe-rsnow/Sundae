@@ -64,8 +64,9 @@ pub fn installed_view(state: AppState) -> impl IntoElement {
                             .flex_1()
                             .items_center()
                             .justify_center()
-                            .gap_2()
-                            .child(text("📦 暂无匹配的已安装应用").text_base().font_weight(FontWeight::MEDIUM))
+                            .gap_3()
+                            .child(package_icon(36.0))
+                            .child(text("暂无匹配的已安装应用").text_base().font_weight(FontWeight::MEDIUM))
                             .child(text("你可以前往「探索」视图快速检索并安装应用").text_xs().text_color(move || theme().muted_foreground))
                             .into_element();
                     }
