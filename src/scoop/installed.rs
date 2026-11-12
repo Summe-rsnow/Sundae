@@ -3,13 +3,30 @@ use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppInstallStatus {
+    Installed,
+    Held,
+    Failed,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledApp {
     pub name: String,
     pub version: String,
-    pub is_held: bool,
+    pub status: AppInstallStatus,
     pub path: PathBuf,
     pub manifest_path: PathBuf,
+}
+
+impl InstalledApp {
+    pub fn is_held(&self) -> bool {
+        self.status == AppInstallStatus::Held
+    }
+
+    pub fn is_failed(&self) -> bool {
+        self.status == AppInstallStatus::Failed
+    }
 }
 
 #[derive(Deserialize)]
@@ -48,10 +65,6 @@ impl InstalledManager {
                 }
                 None => continue,
             };
-
-            // Check hold status: .hold file in app dir or current dir
-            let is_held = app_path.join(".hold").exists()
-                || app_path.join("current").join(".hold").exists();
 
             let current_dir = app_path.join("current");
             let target_dirs = if current_dir.exists() {
@@ -120,12 +133,52 @@ impl InstalledManager {
                 }
             }
 
-            let version = found_version;
+            // Check hold status: check scoop-install.json and install.json
+            let mut is_held = app_path.join(".hold").exists()
+                || current_dir.join(".hold").exists();
+
+            for dir in &target_dirs {
+                for name in &["scoop-install.json", "install.json"] {
+                    let p = dir.join(name);
+                    if p.exists() {
+                        if let Ok(content) = fs::read_to_string(&p) {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                                if val.get("hold").and_then(|h| h.as_bool()) == Some(true) {
+                                    is_held = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if is_held {
+                    break;
+                }
+            }
+
+            // Check failed status: if current does not exist and no manifest was found, or version directory is empty
+            let is_failed = (!current_dir.exists() && found_version == "Unknown")
+                || (!current_dir.exists() && Self::is_dir_empty(&app_path));
+
+            let status = if is_failed {
+                AppInstallStatus::Failed
+            } else if is_held {
+                AppInstallStatus::Held
+            } else {
+                AppInstallStatus::Installed
+            };
+
+            let version = if is_failed && found_version == "Unknown" {
+                "安装失败".to_string()
+            } else {
+                found_version
+            };
+
             let manifest_path = found_manifest;
             installed.push(InstalledApp {
                 name: app_name,
                 version,
-                is_held,
+                status,
                 path: if current_dir.exists() { current_dir } else { app_path },
                 manifest_path,
             });
@@ -133,6 +186,14 @@ impl InstalledManager {
 
         installed.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
         installed
+    }
+
+    fn is_dir_empty(path: &PathBuf) -> bool {
+        if let Ok(mut entries) = fs::read_dir(path) {
+            entries.next().is_none()
+        } else {
+            true
+        }
     }
 
     fn extract_version(manifest_path: &PathBuf) -> Option<String> {

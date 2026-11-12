@@ -16,7 +16,7 @@ impl UpdatesManager {
         let mut updates = Vec::new();
 
         for app in installed {
-            if app.is_held {
+            if app.is_held() || app.is_failed() {
                 continue;
             }
 
