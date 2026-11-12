@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SearchIndex {
     packages: Vec<PackageManifest>,
     buckets: Vec<String>,
