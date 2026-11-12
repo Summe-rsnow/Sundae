@@ -5,6 +5,7 @@ pub mod scoop;
 pub mod shell;
 pub mod store;
 pub mod ui;
+pub mod views;
 
 use nsh_core::prelude::*;
 use shell::shell_view;
