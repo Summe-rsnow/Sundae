@@ -2,6 +2,7 @@
 //! and `cargo run` mount.
 
 pub mod scoop;
+pub mod ui;
 
 use nsh_core::prelude::*;
 use nsh_base::theme;
