@@ -1,26 +1,39 @@
 [package]
 name = "nsh-app-sundae"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/Summe-rsnow/Sundae"
 publish = false
 
 [workspace]
 
 [dependencies]
-nsh-core = { version = "0.5.0", features = ["svg"] }
-nsh-base = "0.5.0"
-env_logger = "0.11"
-log = "0.4"
+nsh-core = { version = "0.6.1", features = ["svg"] }
+nsh-base = { version = "0.6.1", default-features = false }
+bento = { path = "../Bento" }
+# Future remote git + local patch workflow once Bento is published:
+# bento = { git = "https://github.com/Summe-rsnow/Bento.git", tag = "v0.1.0" }
+# [patch."https://github.com/Summe-rsnow/Bento.git"]
+# bento = { path = "../Bento" }
+ureq = { version = "3.5", default-features = false, features = ["rustls", "socks-proxy"] }
+rayon = "1.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rayon = "1.10"
 dirs = "6.0"
 parking_lot = "0.12"
+env_logger = "0.11"
+log = "0.4"
+
 [target.'cfg(target_os = "linux")'.dependencies]
-nsh-platform-linux = { version = "0.5.0", default-features = false, features = ["shader", "editor", "emoji-picker", "highlight", "math", "plot", "rich-editor", "term"] }
+nsh-platform-linux = { version = "0.6.1", default-features = false, features = ["svg"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nsh-platform-macos = { version = "0.5.0", default-features = false, features = ["shader", "editor", "emoji-picker", "highlight", "math", "plot", "rich-editor", "term"] }
+nsh-platform-macos = { version = "0.6.1", default-features = false, features = ["svg"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nsh-platform-windows = { version = "0.5.0", default-features = false, features = ["shader", "editor", "emoji-picker", "highlight", "math", "plot", "rich-editor", "term"] }
+nsh-platform-windows = { version = "0.6.1", default-features = false, features = ["svg"] }
+
+[dev-dependencies]
+nsh-engine = "0.6.1"
+nsh-testing = { version = "0.6.1", features = ["live"] }

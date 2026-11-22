@@ -1,209 +1,276 @@
-use crate::scoop::process::ScoopOp;
-use crate::store::AppState;
-use crate::ui::*;
+//! Buckets management view: displays configured local Scoop buckets with package
+//! counts, recommended official buckets, and a custom Git bucket form.
+//! Uses `each` for the small bounded lists and opens `confirm_remove_bucket_dialog`
+//! before any destructive `scoop bucket rm`.
+
 use nsh_base::theme;
 use nsh_core::prelude::*;
 
-pub fn buckets_view(state: AppState) -> impl IntoElement {
-    let index_sig = state.search_index;
+use crate::scoop::process::ScoopOp;
+use crate::store;
+use crate::ui::{
+    action, action_disabled, action_sm, card, icons, section_header, status_badge, text_field,
+    ButtonKind, ValueTone,
+};
+
+const POPULAR_BUCKETS: &[(&str, &str)] = &[
+    ("main", "Scoop 默认官方基础命令行与开发工具源"),
+    ("extras", "GUI 常用桌面软件及增强工具库"),
+    ("versions", "软件包历史版本与替代版本库"),
+    ("nerd-fonts", "开发者编程字体与图标字体库"),
+    ("sysinternals", "微软官方 Sysinternals 系统诊断工具库"),
+    ("java", "Java 开发环境与各类 JDK 发行版集合"),
+    ("nonportable", "非绿色安装类桌面软件源"),
+    ("games", "开源与独立游戏软件库"),
+];
+
+pub fn buckets_view() -> impl IntoElement {
+    let configured_buckets = computed(store::buckets);
     let new_bucket_name = signal(String::new());
     let new_bucket_url = signal(String::new());
-
-    let popular_buckets = vec![
-        ("main", "Scoop 默认官方基础软件源"),
-        ("extras", "GUI 常用桌面软件及增强工具库"),
-        ("versions", "软件包历史版本与替代版本库"),
-        ("nerd-fonts", "开发者编程字体及图标字体库"),
-        ("sysinternals", "微软官方 Sysinternals 系统诊断工具库"),
-        ("java", "Java 开发环境与各类 JDK 发行版集合"),
-    ];
 
     view()
         .flex_1()
         .h_full()
-        .p_6()
-        .gap_6()
+        .p_5()
+        .gap_4()
         .child(
             // Header
             view()
                 .flex_row()
                 .items_center()
                 .justify_between()
+                .gap_3()
                 .child(
                     view()
                         .flex_row()
                         .items_center()
-                        .gap_3()
-                        .child(text("Bucket 仓库源管理").text_xl().font_weight(FontWeight::BOLD))
-                        .child(dynamic({
-                            move || {
-                                let count = index_sig.with(|i| i.buckets().len());
-                                app_badge(format!("已配置 {} 个", count), BadgeVariant::Primary).into_element()
-                            }
-                        })),
+                        .gap_2()
+                        .child(
+                            text("Bucket 仓库源")
+                                .role(AccessibilityRole::Header)
+                                .text_lg()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(move || theme().foreground),
+                        )
+                        .child(status_badge(
+                            move || format!("已配置 {} 个", store::bucket_count()),
+                            ValueTone::Info,
+                        )),
                 )
-                .child(
-                    app_button("一键同步全部源", ButtonVariant::Primary, ButtonSize::Md, {
-                        let s = state.clone();
-                        move || s.enqueue_op(ScoopOp::BucketUpdate)
-                    }),
-                ),
+                .child(action_disabled(
+                    ButtonKind::Primary,
+                    "同步全部源",
+                    store::is_task_running,
+                    || store::enqueue_op(ScoopOp::BucketUpdate),
+                )),
         )
         .child(
-            // Body container with scroll
-            scroll()
-                .flex_1()
-                .pr_4()
-                .child(
-                    view()
-                        .gap_6()
-                        .child(
-                            // Added Buckets List
-                            view()
-                                .gap_3()
-                                .child(text("当前已添加的源").text_base().font_weight(FontWeight::BOLD))
-                                .child(dynamic({
-                                    let state = state.clone();
-                                    move || {
-                                        let buckets = index_sig.with(|i| i.buckets().to_vec());
+            scroll().flex_1().child(
+                view()
+                    .gap_5()
+                    .pr_2()
+                    .child(
+                        // Section 1: Added Buckets
+                        view()
+                            .gap_2()
+                            .child(section_header("已添加的仓库源"))
+                            .child(when(
+                                move || configured_buckets.with(Vec::is_empty),
+                                || {
+                                    card().p_4().child(
+                                        text("暂无已配置的 Bucket，可从下方官方推荐源一键添加。")
+                                            .text_xs()
+                                            .text_color(move || theme().muted_foreground),
+                                    )
+                                },
+                            ))
+                            .child(
+                                view().gap_2().child(each(
+                                    configured_buckets,
+                                    |b: &String| b.clone(),
+                                    |b_sig, _idx| {
+                                        let bucket_name = b_sig.get_untracked();
+                                        let bucket_count_name = bucket_name.clone();
+                                        let bucket_rm = bucket_name.clone();
+                                        let is_main = bucket_name.eq_ignore_ascii_case("main");
 
-                                        if buckets.is_empty() {
-                                            return view()
-                                                .p_4()
-                                                .child(text("暂无已配置的 Bucket，请在下方添加推荐源").text_xs().text_color(move || theme().muted_foreground))
-                                                .into_element();
-                                        }
-
-                                        let mut b_list = view().gap_2();
-
-                                        for b in buckets {
-                                            let s_clone = state.clone();
-                                            let b_name = b.clone();
-                                            let b_remove = b.clone();
-                                            let is_default_main = b_name == "main";
-
-                                            b_list = b_list.child(
-                                                app_card()
+                                        card()
+                                            .flex_row()
+                                            .items_center()
+                                            .justify_between()
+                                            .px_4()
+                                            .py_3()
+                                            .child(
+                                                view()
                                                     .flex_row()
                                                     .items_center()
-                                                    .justify_between()
-                                                    .p_4()
+                                                    .gap_3()
+                                                    .child(icons::svg_icon(
+                                                        icons::DATABASE,
+                                                        16.0,
+                                                        move || theme().primary,
+                                                    ))
                                                     .child(
                                                         view()
-                                                            .flex_row()
-                                                            .items_center()
-                                                            .gap_3()
-                                                            .child(bucket_icon(20.0))
+                                                            .gap(px(2.0))
                                                             .child(
-                                                                view()
-                                                                    .gap_1()
-                                                                    .child(text(b_name).text_base().font_weight(FontWeight::BOLD))
-                                                                    .child(text("本地 git 镜像同步就绪").text_xs().text_color(move || theme().muted_foreground)),
-                                                            ),
-                                                    )
-                                                    .child(
-                                                        view()
-                                                            .flex_row()
-                                                            .items_center()
-                                                            .gap_2()
-                                                            .child(app_badge("活跃", BadgeVariant::Success))
-                                                            .child(if !is_default_main {
-                                                                app_button("移除", ButtonVariant::Danger, ButtonSize::Sm, move || {
-                                                                    s_clone.enqueue_op(ScoopOp::BucketRm(b_remove.clone()));
+                                                                text(bucket_name)
+                                                                    .text_sm()
+                                                                    .font_weight(
+                                                                        FontWeight::SEMIBOLD,
+                                                                    )
+                                                                    .text_color(move || {
+                                                                        theme().foreground
+                                                                    }),
+                                                            )
+                                                            .child(
+                                                                text(move || {
+                                                                    format!(
+                                                                        "包含 {} 个软件包清单",
+                                                                        store::bucket_package_count(
+                                                                            &bucket_count_name
+                                                                        )
+                                                                    )
                                                                 })
-                                                                .into_element()
-                                                            } else {
-                                                                view().into_element()
-                                                            }),
+                                                                .text_xs()
+                                                                .tabular_nums()
+                                                                .text_color(move || {
+                                                                    theme().muted_foreground
+                                                                }),
+                                                            ),
                                                     ),
-                                            );
-                                        }
-
-                                        b_list.into_element()
-                                    }
-                                })),
-                        )
-                        .child(
-                            // Recommended Buckets
-                            view()
-                                .gap_3()
-                                .child(text("官方与热门推荐源").text_base().font_weight(FontWeight::BOLD))
-                                .child(dynamic({
-                                    let state = state.clone();
-                                    let popular = popular_buckets.clone();
-                                    move || {
-                                        let current_buckets = index_sig.with(|i| i.buckets().to_vec());
-                                        let mut pop_list = view().gap_2();
-
-                                        for (name, desc) in &popular {
-                                            let is_added = current_buckets.iter().any(|b| b == name);
-                                            let s_clone = state.clone();
-                                            let n_str = (*name).to_string();
-
-                                            pop_list = pop_list.child(
-                                                app_card()
+                                            )
+                                            .child(
+                                                view()
                                                     .flex_row()
                                                     .items_center()
-                                                    .justify_between()
-                                                    .p_3()
-                                                    .child(
-                                                        view()
-                                                            .gap_1()
-                                                            .child(text(*name).text_sm().font_weight(FontWeight::BOLD))
-                                                            .child(text(*desc).text_xs().text_color(move || theme().muted_foreground)),
-                                                    )
-                                                    .child(if is_added {
-                                                        app_badge("已添加", BadgeVariant::Secondary).into_element()
-                                                    } else {
-                                                        app_button("添加", ButtonVariant::Secondary, ButtonSize::Sm, move || {
-                                                            s_clone.enqueue_op(ScoopOp::BucketAdd {
-                                                                name: n_str.clone(),
-                                                                url: None,
-                                                            });
-                                                        })
-                                                        .into_element()
+                                                    .gap_2()
+                                                    .child(status_badge("活跃", ValueTone::Ok))
+                                                    .when(!is_main, |v| {
+                                                        v.child(action_sm(
+                                                            ButtonKind::Destructive,
+                                                            "移除",
+                                                            move || {
+                                                                store::request_remove_bucket(
+                                                                    bucket_rm.clone(),
+                                                                );
+                                                            },
+                                                        ))
                                                     }),
-                                            );
-                                        }
-
-                                        pop_list.into_element()
-                                    }
-                                })),
-                        )
-                        .child(
-                            // Add Custom Bucket Section
-                            app_card()
-                                .gap_3()
-                                .child(text("添加第三方自定义源").text_base().font_weight(FontWeight::BOLD))
-                                .child(
-                                    view()
+                                            )
+                                    },
+                                )),
+                            ),
+                    )
+                    .child(
+                        // Section 2: Official & Popular Recommended Buckets
+                        view()
+                            .gap_2()
+                            .child(section_header("官方与热门推荐源"))
+                            .child(view().gap_2().children(POPULAR_BUCKETS.iter().map(
+                                |&(name, desc)| {
+                                    let is_added = move || {
+                                        configured_buckets.with(|list| {
+                                            list.iter().any(|b| b.eq_ignore_ascii_case(name))
+                                        })
+                                    };
+                                    card()
                                         .flex_row()
-                                        .gap_3()
+                                        .items_center()
+                                        .justify_between()
+                                        .px_4()
+                                        .py(px(10.0))
                                         .child(
                                             view()
-                                                .w(px(200.0))
-                                                .child(app_text_field("源名称 (例如: dorado)", new_bucket_name, move |t| new_bucket_name.set(t))),
+                                                .flex_1()
+                                                .min_w(px(0.0))
+                                                .gap(px(2.0))
+                                                .child(
+                                                    text(name)
+                                                        .text_sm()
+                                                        .font_weight(FontWeight::MEDIUM)
+                                                        .text_color(move || theme().foreground),
+                                                )
+                                                .child(
+                                                    text(desc)
+                                                        .text_xs()
+                                                        .text_color(move || {
+                                                            theme().muted_foreground
+                                                        }),
+                                                ),
                                         )
-                                        .child(
-                                            app_text_field("Git 仓库地址 (可选，支持 https://...)", new_bucket_url, move |t| new_bucket_url.set(t)),
-                                        )
-                                        .child(app_button("确认添加", ButtonVariant::Primary, ButtonSize::Md, {
-                                            let s = state.clone();
+                                        .child(when(is_added, || {
+                                            status_badge("已添加", ValueTone::Neutral)
+                                        }))
+                                        .child(when(
+                                            move || !is_added(),
                                             move || {
-                                                let name = new_bucket_name.get().trim().to_string();
-                                                let url = new_bucket_url.get().trim().to_string();
-                                                if !name.is_empty() {
-                                                    s.enqueue_op(ScoopOp::BucketAdd {
-                                                        name,
-                                                        url: if url.is_empty() { None } else { Some(url) },
+                                                action_sm(ButtonKind::Secondary, "添加", move || {
+                                                    store::enqueue_op(ScoopOp::BucketAdd {
+                                                        name: name.to_owned(),
+                                                        url: None,
                                                     });
-                                                    new_bucket_name.set(String::new());
-                                                    new_bucket_url.set(String::new());
-                                                }
-                                            }
-                                        })),
-                                ),
-                        ),
-                ),
+                                                })
+                                            },
+                                        ))
+                                },
+                            ))),
+                    )
+                    .child(
+                        // Section 3: Add Custom Third-Party Git Bucket
+                        card()
+                            .p_4()
+                            .gap_3()
+                            .child(section_header("添加自定义第三方仓库源"))
+                            .child(
+                                text("输入自定义 Bucket 名称与 Git 仓库地址（若为 Scoop 官方已知源，仓库地址可留空）。")
+                                    .text_xs()
+                                    .text_color(move || theme().muted_foreground),
+                            )
+                            .child(
+                                view()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        view().w(px(180.0)).child(
+                                            text_field(
+                                                move || new_bucket_name.get(),
+                                                "源名称 (如 dorado)",
+                                                move |t| new_bucket_name.set(t.to_owned()),
+                                            )
+                                            .label("自定义仓库源名称"),
+                                        ),
+                                    )
+                                    .child(
+                                        view().flex_1().min_w(px(0.0)).child(
+                                            text_field(
+                                                move || new_bucket_url.get(),
+                                                "Git 仓库地址 (可选，https://...)",
+                                                move |t| new_bucket_url.set(t.to_owned()),
+                                            )
+                                            .label("自定义仓库 Git 地址"),
+                                        ),
+                                    )
+                                    .child(action(ButtonKind::Primary, "添加源", move || {
+                                        let name =
+                                            new_bucket_name.get_untracked().trim().to_owned();
+                                        let url =
+                                            new_bucket_url.get_untracked().trim().to_owned();
+                                        if name.is_empty() {
+                                            store::notices().notify_warn("请先输入仓库源名称");
+                                            return;
+                                        }
+                                        store::enqueue_op(ScoopOp::BucketAdd {
+                                            name,
+                                            url: if url.is_empty() { None } else { Some(url) },
+                                        });
+                                        new_bucket_name.set(String::new());
+                                        new_bucket_url.set(String::new());
+                                    })),
+                            ),
+                    ),
+            ),
         )
 }

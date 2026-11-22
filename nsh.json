@@ -1,9 +1,22 @@
 {
   "name": "Sundae",
-  "id": "com.example.sundae",
+  "id": "com.xcmm.sundae",
   "version": "1.0.0",
   "build": 1,
-  "appearance": "dark",
+  "singleInstance": true,
+  "icon": "assets/icon.png",
+  "appearance": "system",
+  "theme": "theme.json",
   "rust": ".",
-  "root": "App"
+  "root": "App",
+  "window": {
+    "minSize": {
+      "width": 880,
+      "height": 600
+    },
+    "titleBar": {
+      "style": "hidden",
+      "height": 48
+    }
+  }
 }

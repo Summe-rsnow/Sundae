@@ -1,26 +1,34 @@
-//! The app's Rust UI: its root component, which `nsh run`, `nsh package`
-//! and `cargo run` mount.
+//! Sundae: Native desktop Scoop package manager built on NSH and Bento.
 
+pub mod dialogs;
 pub mod scoop;
 pub mod shell;
 pub mod store;
 pub mod ui;
 pub mod views;
 
+use bento::shell::init_desktop_window;
+use nsh_base::theme;
 use nsh_core::prelude::*;
-use shell::shell_view;
-use store::AppState;
 
-/// The app's UI set (`nsh.json` `"rust"`): what a TSX entry may import from
-/// `sundae/native` (`README.md`, "Adding a TSX entry").
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The app's UI set (`nsh.json` `"rust"`).
 #[native_module("sundae/native")]
 fn native(registry: &mut Registry) {
     registry.register::<App>();
 }
 
-/// The application's root component.
+/// The application's root component (`nsh.json` `"root"`).
 #[component]
 pub fn App() -> impl IntoElement {
-    let state = AppState::new();
-    shell_view(state)
+    init_desktop_window(880.0, 600.0, 48.0);
+    store::load();
+
+    view()
+        .flex_1()
+        .bg(move || theme().background)
+        .text_color(move || theme().foreground)
+        .p_safe_area()
+        .child(shell::screen())
 }

@@ -20,7 +20,7 @@ impl UpdatesManager {
                 continue;
             }
 
-            if let Some(manifest) = index.find(&app.name) {
+            if let Some(manifest) = index.find_in_bucket(&app.name, app.bucket.as_deref()) {
                 if manifest.version != "Unknown"
                     && app.version != "Unknown"
                     && manifest.version != app.version
@@ -35,7 +35,11 @@ impl UpdatesManager {
             }
         }
 
-        updates.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+        updates.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
         updates
     }
 }

@@ -9,18 +9,21 @@ pub struct PackageManifest {
     pub description: String,
     pub homepage: String,
     pub license: String,
+    pub license_url: Option<String>,
     pub bins: Vec<String>,
     pub depends: Vec<String>,
+    pub notes: Vec<String>,
 }
 
 #[derive(Deserialize)]
 struct RawManifest {
     version: Option<String>,
-    description: Option<String>,
+    description: Option<Value>,
     homepage: Option<String>,
     license: Option<Value>,
     bin: Option<Value>,
     depends: Option<Value>,
+    notes: Option<Value>,
 }
 
 impl PackageManifest {
@@ -28,17 +31,29 @@ impl PackageManifest {
         let raw: RawManifest = serde_json::from_str(json_str)?;
 
         let version = raw.version.unwrap_or_else(|| "Unknown".to_string());
-        let description = raw.description.unwrap_or_default();
+        let description = match raw.description {
+            Some(Value::String(s)) => s,
+            Some(Value::Array(arr)) => arr
+                .into_iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => String::new(),
+        };
         let homepage = raw.homepage.unwrap_or_default();
 
-        let license = match raw.license {
-            Some(Value::String(s)) => s,
-            Some(Value::Object(obj)) => obj
-                .get("identifier")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string(),
-            _ => "Unknown".to_string(),
+        let (license, license_url) = match raw.license {
+            Some(Value::String(s)) => (s, None),
+            Some(Value::Object(obj)) => {
+                let id = obj
+                    .get("identifier")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                let url = obj.get("url").and_then(|v| v.as_str()).map(str::to_owned);
+                (id, url)
+            }
+            _ => ("Unknown".to_string(), None),
         };
 
         let mut bins = Vec::new();
@@ -86,6 +101,23 @@ impl PackageManifest {
             _ => {}
         }
 
+        let mut notes = Vec::new();
+        match raw.notes {
+            Some(Value::String(s)) => {
+                if !s.trim().is_empty() {
+                    notes.push(s);
+                }
+            }
+            Some(Value::Array(arr)) => {
+                for item in arr {
+                    if let Value::String(s) = item {
+                        notes.push(s);
+                    }
+                }
+            }
+            _ => {}
+        }
+
         Ok(Self {
             name: name.to_string(),
             bucket: bucket.to_string(),
@@ -93,8 +125,26 @@ impl PackageManifest {
             description,
             homepage,
             license,
+            license_url,
             bins,
             depends,
+            notes,
         })
+    }
+
+    pub fn install_command(&self) -> String {
+        if self.bucket.is_empty() {
+            format!("scoop install {}", self.name)
+        } else {
+            format!("scoop install {}/{}", self.bucket, self.name)
+        }
+    }
+
+    pub fn display_description(&self) -> &str {
+        if self.description.trim().is_empty() {
+            "暂无描述"
+        } else {
+            self.description.as_str()
+        }
     }
 }

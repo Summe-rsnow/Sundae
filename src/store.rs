@@ -1,0 +1,740 @@
+//! Centralized reactive store for Sundae.
+//!
+//! All signals are strictly private to this module (zero `pub Signal` exposure).
+//! Views and dialogs read state via tracked functions and request mutations via
+//! semantic actions. Local Scoop scanning always runs off the UI thread via
+//! `blocking` + Rayon so cold start and refreshes never stutter.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use bento::shell::{CloseBehavior, NoticeCenter, ThemeMode};
+use bento::updater::{check_latest_release, AppMeta, UpdateStatus};
+use nsh_core::prelude::*;
+
+use crate::scoop::config::{ScoopConfig, SundaePrefs};
+use crate::scoop::env::ScoopEnv;
+use crate::scoop::installed::{InstalledApp, InstalledManager};
+use crate::scoop::manifest::PackageManifest;
+use crate::scoop::process::{LogLine, ScoopOp, TaskQueue, TaskStatus};
+use crate::scoop::scanner::{BucketScanner, SearchIndex};
+use crate::scoop::updates::{AppUpdate, UpdatesManager};
+use crate::ui::icons;
+
+pub const APP_META: AppMeta = AppMeta {
+    name: "Sundae",
+    version: crate::APP_VERSION,
+    tagline: "轻快、原生的 Scoop 桌面软件包管理器",
+    github_repo: "Summe-rsnow/Sundae",
+    license: "Apache-2.0",
+    brand_mark: icons::sundae_logo,
+};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Route {
+    #[default]
+    Discover,
+    Installed,
+    Updates,
+    Buckets,
+    Config,
+}
+
+#[derive(Clone)]
+struct EnvState(ScoopEnv);
+
+impl Default for EnvState {
+    fn default() -> Self {
+        Self(ScoopEnv::detect())
+    }
+}
+
+impl PartialEq for EnvState {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+#[derive(Default, Clone, PartialEq)]
+struct ActiveRoute(Route);
+
+#[derive(Default, Clone, PartialEq)]
+struct DiscoverQuery(String);
+
+#[derive(Default, Clone, PartialEq)]
+struct BucketFilter(Option<String>);
+
+#[derive(Default, Clone, PartialEq)]
+struct InstalledQuery(String);
+
+#[derive(Default, Clone, PartialEq)]
+struct IndexState(SearchIndex);
+
+#[derive(Default, Clone, PartialEq)]
+struct InstalledState(Vec<InstalledApp>);
+
+#[derive(Default, Clone, PartialEq)]
+struct UpdatesState(Vec<AppUpdate>);
+
+#[derive(Default, Clone, PartialEq)]
+struct IndexingState(bool);
+
+#[derive(Default, Clone, PartialEq)]
+struct ScanSeq(u64);
+
+#[derive(Default, Clone, PartialEq)]
+struct MissingScoopState(bool);
+
+#[derive(Default, Clone, PartialEq)]
+struct TaskRunningState(bool);
+
+#[derive(Default, Clone, PartialEq)]
+struct RunningTaskLabel(Option<String>);
+
+#[derive(Default, Clone, PartialEq)]
+struct PendingCountState(usize);
+
+#[derive(Default, Clone, PartialEq)]
+struct TerminalOpenState(bool);
+
+#[derive(Default, Clone, PartialEq)]
+struct LogListState(Vec<LogLine>);
+
+#[derive(Default, Clone, PartialEq)]
+struct ScoopConfigState(ScoopConfig);
+
+#[derive(Default, Clone, PartialEq)]
+struct ThemeModeState(ThemeMode);
+
+#[derive(Default, Clone, PartialEq)]
+struct CloseBehaviorState(CloseBehavior);
+
+#[derive(Default, Clone, PartialEq)]
+struct UpdateCheckState(UpdateStatus);
+
+#[derive(Default, Clone, PartialEq)]
+struct AboutOpenState(bool);
+
+#[derive(Default, Clone, PartialEq)]
+struct DetailTargetState(Option<PackageManifest>);
+
+#[derive(Default, Clone, PartialEq)]
+struct UninstallTargetState(Option<String>);
+
+#[derive(Default, Clone, PartialEq)]
+struct RemoveBucketTargetState(Option<String>);
+
+#[derive(Clone, Default)]
+struct QueueHandle(Option<Arc<TaskQueue>>);
+
+impl PartialEq for QueueHandle {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
+// --- Private signal accessors ---
+
+fn env_sig() -> Signal<EnvState> {
+    global::<EnvState>()
+}
+fn route_sig() -> Signal<ActiveRoute> {
+    global::<ActiveRoute>()
+}
+fn discover_query_sig() -> Signal<DiscoverQuery> {
+    global::<DiscoverQuery>()
+}
+fn bucket_filter_sig() -> Signal<BucketFilter> {
+    global::<BucketFilter>()
+}
+fn installed_query_sig() -> Signal<InstalledQuery> {
+    global::<InstalledQuery>()
+}
+fn index_sig() -> Signal<IndexState> {
+    global::<IndexState>()
+}
+fn installed_sig() -> Signal<InstalledState> {
+    global::<InstalledState>()
+}
+fn updates_sig() -> Signal<UpdatesState> {
+    global::<UpdatesState>()
+}
+fn indexing_sig() -> Signal<IndexingState> {
+    global::<IndexingState>()
+}
+fn scan_seq_sig() -> Signal<ScanSeq> {
+    global::<ScanSeq>()
+}
+fn missing_scoop_sig() -> Signal<MissingScoopState> {
+    global::<MissingScoopState>()
+}
+fn task_running_sig() -> Signal<TaskRunningState> {
+    global::<TaskRunningState>()
+}
+fn running_label_sig() -> Signal<RunningTaskLabel> {
+    global::<RunningTaskLabel>()
+}
+fn pending_count_sig() -> Signal<PendingCountState> {
+    global::<PendingCountState>()
+}
+fn terminal_open_sig() -> Signal<TerminalOpenState> {
+    global::<TerminalOpenState>()
+}
+fn logs_sig() -> Signal<LogListState> {
+    global::<LogListState>()
+}
+fn scoop_config_sig() -> Signal<ScoopConfigState> {
+    global::<ScoopConfigState>()
+}
+fn theme_mode_sig() -> Signal<ThemeModeState> {
+    global::<ThemeModeState>()
+}
+fn close_behavior_sig() -> Signal<CloseBehaviorState> {
+    global::<CloseBehaviorState>()
+}
+fn update_status_sig() -> Signal<UpdateCheckState> {
+    global::<UpdateCheckState>()
+}
+fn about_open_sig() -> Signal<AboutOpenState> {
+    global::<AboutOpenState>()
+}
+fn detail_target_sig() -> Signal<DetailTargetState> {
+    global::<DetailTargetState>()
+}
+fn uninstall_target_sig() -> Signal<UninstallTargetState> {
+    global::<UninstallTargetState>()
+}
+fn remove_bucket_target_sig() -> Signal<RemoveBucketTargetState> {
+    global::<RemoveBucketTargetState>()
+}
+fn queue_sig() -> Signal<QueueHandle> {
+    global::<QueueHandle>()
+}
+
+fn ensure_queue() -> Arc<TaskQueue> {
+    let existing = queue_sig().with_untracked(|h| h.0.clone());
+    if let Some(q) = existing {
+        return q;
+    }
+    let q = Arc::new(TaskQueue::new());
+    queue_sig().set(QueueHandle(Some(Arc::clone(&q))));
+    q
+}
+
+fn parse_theme_mode(raw: &str) -> ThemeMode {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "light" => ThemeMode::Light,
+        "dark" => ThemeMode::Dark,
+        _ => ThemeMode::System,
+    }
+}
+
+fn theme_mode_key(mode: ThemeMode) -> &'static str {
+    match mode {
+        ThemeMode::System => "system",
+        ThemeMode::Light => "light",
+        ThemeMode::Dark => "dark",
+    }
+}
+
+fn parse_close_behavior(raw: &str) -> CloseBehavior {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "tray" => CloseBehavior::Tray,
+        "exit" | "quit" => CloseBehavior::Exit,
+        _ => CloseBehavior::Ask,
+    }
+}
+
+fn close_behavior_key(behavior: CloseBehavior) -> &'static str {
+    match behavior {
+        CloseBehavior::Ask => "ask",
+        CloseBehavior::Tray => "tray",
+        CloseBehavior::Exit => "exit",
+    }
+}
+
+fn persist_prefs() {
+    let prefs = SundaePrefs {
+        theme_mode: theme_mode_key(theme_mode_sig().get_untracked().0).to_owned(),
+        close_behavior: close_behavior_key(close_behavior_sig().get_untracked().0).to_owned(),
+    };
+    if let Err(err) = prefs.save() {
+        log::warn!("Failed to persist Sundae prefs: {err}");
+    }
+}
+
+/// Initializes store state on app startup without blocking the UI thread.
+pub fn load() {
+    let env = ScoopEnv::detect();
+    let cfg = ScoopConfig::load();
+    let prefs = SundaePrefs::load();
+    let theme_mode = parse_theme_mode(&prefs.theme_mode);
+    let close_behavior = parse_close_behavior(&prefs.close_behavior);
+    let is_missing = !env.is_installed();
+
+    batch(|| {
+        env_sig().set(EnvState(env));
+        scoop_config_sig().set(ScoopConfigState(cfg));
+        theme_mode_sig().set(ThemeModeState(theme_mode));
+        close_behavior_sig().set(CloseBehaviorState(close_behavior));
+        missing_scoop_sig().set(MissingScoopState(is_missing));
+    });
+
+    theme_mode.apply();
+
+    if !is_missing {
+        refresh_all();
+    }
+}
+
+/// Seeds the store with deterministic data for headless UI tests.
+pub fn seed_for_test(index: SearchIndex, installed: Vec<InstalledApp>, config: ScoopConfig) {
+    let updates = UpdatesManager::check_updates(&installed, &index);
+    batch(|| {
+        missing_scoop_sig().set(MissingScoopState(false));
+        indexing_sig().set(IndexingState(false));
+        index_sig().set(IndexState(index));
+        installed_sig().set(InstalledState(installed));
+        updates_sig().set(UpdatesState(updates));
+        scoop_config_sig().set(ScoopConfigState(config));
+    });
+}
+
+/// Starts the lightweight 100ms task queue poller for the current shell owner.
+pub fn start_task_poller() {
+    let queue = ensure_queue();
+    let status_rx = queue.subscribe_status();
+    let log_rx = queue.subscribe_logs();
+
+    set_interval(Duration::from_millis(100), move || {
+        let mut needs_refresh = false;
+        while let Ok(status) = status_rx.try_recv() {
+            match status {
+                TaskStatus::Running(op) => {
+                    batch(|| {
+                        task_running_sig().set(TaskRunningState(true));
+                        running_label_sig().set(RunningTaskLabel(Some(op.display_name())));
+                        pending_count_sig().set(PendingCountState(queue.pending_count()));
+                    });
+                }
+                TaskStatus::Success(op) => {
+                    batch(|| {
+                        task_running_sig().set(TaskRunningState(false));
+                        running_label_sig().set(RunningTaskLabel(None));
+                        pending_count_sig().set(PendingCountState(queue.pending_count()));
+                    });
+                    notices().notify_ok(format!("已完成：{}", op.display_name()));
+                    needs_refresh = true;
+                }
+                TaskStatus::Failed { op, error } => {
+                    batch(|| {
+                        task_running_sig().set(TaskRunningState(false));
+                        running_label_sig().set(RunningTaskLabel(None));
+                        pending_count_sig().set(PendingCountState(queue.pending_count()));
+                    });
+                    notices().notify_bad(format!("{}失败：{}", op.display_name(), error));
+                }
+                TaskStatus::Idle => {
+                    batch(|| {
+                        task_running_sig().set(TaskRunningState(false));
+                        running_label_sig().set(RunningTaskLabel(None));
+                        pending_count_sig().set(PendingCountState(0));
+                    });
+                }
+            }
+        }
+
+        let mut new_logs = Vec::new();
+        while let Ok(line) = log_rx.try_recv() {
+            new_logs.push(line);
+        }
+        if !new_logs.is_empty() {
+            logs_sig().update(|state| {
+                if state.0.len() + new_logs.len() > 2500 {
+                    let drop_count = (state.0.len() + new_logs.len()).saturating_sub(2000);
+                    let drain_to = drop_count.min(state.0.len());
+                    state.0.drain(0..drain_to);
+                }
+                state.0.extend(new_logs);
+            });
+            if !terminal_open_sig().get_untracked().0 {
+                terminal_open_sig().set(TerminalOpenState(true));
+            }
+        }
+
+        if needs_refresh {
+            refresh_all();
+        }
+    });
+}
+
+/// Scans Scoop buckets, installed apps, and pending updates on a background thread
+/// using Rayon, then commits the snapshot atomically to UI signals.
+pub fn refresh_all() {
+    let env = ScoopEnv::detect();
+    env_sig().set(EnvState(env.clone()));
+
+    if !env.is_installed() {
+        batch(|| {
+            missing_scoop_sig().set(MissingScoopState(true));
+            indexing_sig().set(IndexingState(false));
+        });
+        return;
+    }
+
+    let next_seq = scan_seq_sig().get_untracked().0.wrapping_add(1);
+    batch(|| {
+        missing_scoop_sig().set(MissingScoopState(false));
+        scan_seq_sig().set(ScanSeq(next_seq));
+        indexing_sig().set(IndexingState(true));
+    });
+
+    spawn(async move {
+        let scanned = blocking(move || {
+            let index = BucketScanner::scan_buckets(&env);
+            let installed = InstalledManager::scan_installed(&env);
+            let updates = UpdatesManager::check_updates(&installed, &index);
+            (index, installed, updates)
+        })
+        .await;
+
+        if scan_seq_sig().get_untracked().0 != next_seq {
+            return;
+        }
+
+        match scanned {
+            Ok((index, installed, updates)) => {
+                batch(|| {
+                    index_sig().set(IndexState(index));
+                    installed_sig().set(InstalledState(installed));
+                    updates_sig().set(UpdatesState(updates));
+                    indexing_sig().set(IndexingState(false));
+                });
+            }
+            Err(err) => {
+                indexing_sig().set(IndexingState(false));
+                notices().notify_bad(format!("后台扫描 Scoop 索引失败：{err}"));
+            }
+        }
+    });
+}
+
+// --- Navigation & Filters ---
+
+pub fn active_route() -> Route {
+    route_sig().get().0
+}
+
+pub fn set_route(route: Route) {
+    route_sig().set(ActiveRoute(route));
+}
+
+pub fn search_query() -> String {
+    discover_query_sig().get().0
+}
+
+pub fn set_search_query(query: impl Into<String>) {
+    discover_query_sig().set(DiscoverQuery(query.into()));
+}
+
+pub fn bucket_filter() -> Option<String> {
+    bucket_filter_sig().get().0
+}
+
+pub fn set_bucket_filter(bucket: Option<String>) {
+    bucket_filter_sig().set(BucketFilter(bucket));
+}
+
+pub fn installed_filter() -> String {
+    installed_query_sig().get().0
+}
+
+pub fn set_installed_filter(query: impl Into<String>) {
+    installed_query_sig().set(InstalledQuery(query.into()));
+}
+
+// --- Domain Queries (tracked) ---
+
+pub fn is_indexing() -> bool {
+    indexing_sig().get().0
+}
+
+pub fn is_missing_scoop() -> bool {
+    missing_scoop_sig().get().0
+}
+
+pub fn scoop_root_display() -> String {
+    env_sig().with(|e| e.0.root.display().to_string())
+}
+
+pub fn total_packages_count() -> usize {
+    index_sig().with(|idx| idx.0.total_packages())
+}
+
+pub fn buckets() -> Vec<String> {
+    index_sig().with(|idx| idx.0.buckets().to_vec())
+}
+
+pub fn bucket_count() -> usize {
+    index_sig().with(|idx| idx.0.buckets().len())
+}
+
+pub fn bucket_package_count(bucket: &str) -> usize {
+    index_sig().with(|idx| idx.0.bucket_package_count(bucket))
+}
+
+pub fn filtered_discover_packages() -> Vec<PackageManifest> {
+    let query = discover_query_sig().get().0;
+    let bucket = bucket_filter_sig().get().0;
+    index_sig().with(|idx| {
+        idx.0
+            .search(&query, bucket.as_deref())
+            .into_iter()
+            .cloned()
+            .collect()
+    })
+}
+
+pub fn installed_count() -> usize {
+    installed_sig().with(|apps| apps.0.len())
+}
+
+pub fn filtered_installed_apps() -> Vec<InstalledApp> {
+    let filter = installed_query_sig().get().0.trim().to_ascii_lowercase();
+    installed_sig().with(|apps| {
+        apps.0
+            .iter()
+            .filter(|a| filter.is_empty() || a.name.to_ascii_lowercase().contains(&filter))
+            .cloned()
+            .collect()
+    })
+}
+
+pub fn is_installed_package(name: &str) -> bool {
+    installed_sig().with(|apps| apps.0.iter().any(|a| a.name.eq_ignore_ascii_case(name)))
+}
+
+pub fn find_manifest(name: &str, bucket: Option<&str>) -> Option<PackageManifest> {
+    index_sig().with(|idx| idx.0.find_in_bucket(name, bucket).cloned())
+}
+
+pub fn updates() -> Vec<AppUpdate> {
+    updates_sig().get().0
+}
+
+pub fn updates_count() -> usize {
+    updates_sig().with(|u| u.0.len())
+}
+
+// --- Process Queue & Terminal ---
+
+pub fn is_task_running() -> bool {
+    task_running_sig().get().0
+}
+
+pub fn running_task_label() -> Option<String> {
+    running_label_sig().get().0
+}
+
+pub fn pending_task_count() -> usize {
+    pending_count_sig().get().0
+}
+
+pub fn enqueue_op(op: ScoopOp) {
+    let queue = ensure_queue();
+    terminal_open_sig().set(TerminalOpenState(true));
+    queue.enqueue(op);
+    pending_count_sig().set(PendingCountState(queue.pending_count()));
+}
+
+pub fn cancel_current_task() {
+    if let Some(queue) = queue_sig().with_untracked(|h| h.0.clone()) {
+        queue.cancel_current();
+        notices().notify_warn("已请求终止当前任务");
+    }
+}
+
+pub fn toggle_hold(app: &InstalledApp) {
+    let next_hold = !app.is_held();
+    let _ = InstalledManager::set_hold_flag(&app.path, next_hold);
+    let op = if next_hold {
+        ScoopOp::Hold(app.name.clone())
+    } else {
+        ScoopOp::Unhold(app.name.clone())
+    };
+    enqueue_op(op);
+    refresh_all();
+}
+
+pub fn terminal_open() -> bool {
+    terminal_open_sig().get().0
+}
+
+pub fn set_terminal_open(open: bool) {
+    terminal_open_sig().set(TerminalOpenState(open));
+}
+
+pub fn toggle_terminal() {
+    let current = terminal_open_sig().get_untracked().0;
+    terminal_open_sig().set(TerminalOpenState(!current));
+}
+
+pub fn log_count() -> usize {
+    logs_sig().with(|l| l.0.len())
+}
+
+pub fn log_ids() -> Vec<u64> {
+    logs_sig().with(|l| l.0.iter().map(|line| line.id).collect())
+}
+
+pub fn log_at(index: usize) -> Option<LogLine> {
+    logs_sig().with(|l| l.0.get(index).cloned())
+}
+
+pub fn clear_logs() {
+    logs_sig().set(LogListState(Vec::new()));
+}
+
+// --- Configuration & Preferences ---
+
+pub fn scoop_config() -> ScoopConfig {
+    scoop_config_sig().get().0
+}
+
+pub fn save_scoop_config(cfg: ScoopConfig) {
+    match cfg.save() {
+        Ok(()) => {
+            scoop_config_sig().set(ScoopConfigState(cfg));
+            notices().notify_ok("Scoop 配置已保存并生效");
+        }
+        Err(err) => {
+            notices().notify_bad(format!("保存配置失败：{err}"));
+        }
+    }
+}
+
+pub fn theme_mode() -> ThemeMode {
+    theme_mode_sig().get().0
+}
+
+pub fn set_theme_mode(mode: ThemeMode) {
+    theme_mode_sig().set(ThemeModeState(mode));
+    mode.apply();
+    persist_prefs();
+}
+
+pub fn close_behavior() -> CloseBehavior {
+    close_behavior_sig().get().0
+}
+
+pub fn close_behavior_untracked() -> CloseBehavior {
+    close_behavior_sig().get_untracked().0
+}
+
+pub fn set_close_behavior(behavior: CloseBehavior) {
+    close_behavior_sig().set(CloseBehaviorState(behavior));
+    persist_prefs();
+}
+
+// --- Notices & Updater ---
+
+pub fn notices() -> NoticeCenter {
+    NoticeCenter::global()
+}
+
+pub fn update_status() -> UpdateStatus {
+    update_status_sig().get().0
+}
+
+pub fn check_for_updates() {
+    if matches!(update_status_sig().get_untracked().0, UpdateStatus::Checking) {
+        return;
+    }
+    update_status_sig().set(UpdateCheckState(UpdateStatus::Checking));
+    let proxy = scoop_config_sig()
+        .get_untracked()
+        .0
+        .proxy
+        .filter(|p| {
+            let trimmed = p.trim();
+            !trimmed.is_empty()
+                && !trimmed.eq_ignore_ascii_case("none")
+                && !trimmed.eq_ignore_ascii_case("default")
+        });
+
+    spawn(async move {
+        let result = check_latest_release(APP_META, proxy).await;
+        update_status_sig().set(UpdateCheckState(UpdateStatus::from(result)));
+    });
+}
+
+// --- Modal Dialog States ---
+
+pub fn about_open() -> bool {
+    about_open_sig().get().0
+}
+
+pub fn set_about_open(open: bool) {
+    about_open_sig().set(AboutOpenState(open));
+}
+
+pub fn detail_target() -> Option<PackageManifest> {
+    detail_target_sig().get().0
+}
+
+pub fn open_package_detail(pkg: PackageManifest) {
+    detail_target_sig().set(DetailTargetState(Some(pkg)));
+}
+
+pub fn close_package_detail() {
+    detail_target_sig().set(DetailTargetState(None));
+}
+
+pub fn uninstall_target() -> Option<String> {
+    uninstall_target_sig().get().0
+}
+
+pub fn request_uninstall(name: impl Into<String>) {
+    uninstall_target_sig().set(UninstallTargetState(Some(name.into())));
+}
+
+pub fn close_uninstall_confirm() {
+    uninstall_target_sig().set(UninstallTargetState(None));
+}
+
+pub fn remove_bucket_target() -> Option<String> {
+    remove_bucket_target_sig().get().0
+}
+
+pub fn request_remove_bucket(name: impl Into<String>) {
+    remove_bucket_target_sig().set(RemoveBucketTargetState(Some(name.into())));
+}
+
+pub fn close_remove_bucket_confirm() {
+    remove_bucket_target_sig().set(RemoveBucketTargetState(None));
+}
+
+/// Closes whichever modal dialog is currently open (for Escape shortcut).
+pub fn dismiss_top_dialog() -> bool {
+    if remove_bucket_target_sig().get_untracked().0.is_some() {
+        close_remove_bucket_confirm();
+        return true;
+    }
+    if uninstall_target_sig().get_untracked().0.is_some() {
+        close_uninstall_confirm();
+        return true;
+    }
+    if detail_target_sig().get_untracked().0.is_some() {
+        close_package_detail();
+        return true;
+    }
+    if about_open_sig().get_untracked().0 {
+        set_about_open(false);
+        return true;
+    }
+    false
+}

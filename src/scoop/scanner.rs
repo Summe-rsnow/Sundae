@@ -13,12 +13,25 @@ pub struct SearchIndex {
 
 impl SearchIndex {
     pub fn new(packages: Vec<PackageManifest>) -> Self {
-        let mut buckets_set = HashSet::new();
+        Self::with_buckets(packages, Vec::new())
+    }
+
+    pub fn with_buckets(mut packages: Vec<PackageManifest>, extra_buckets: Vec<String>) -> Self {
+        let mut buckets_set: HashSet<String> = extra_buckets.into_iter().collect();
         for p in &packages {
-            buckets_set.insert(p.bucket.clone());
+            if !p.bucket.is_empty() {
+                buckets_set.insert(p.bucket.clone());
+            }
         }
         let mut buckets: Vec<String> = buckets_set.into_iter().collect();
-        buckets.sort();
+        buckets.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
+
+        packages.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+                .then_with(|| a.bucket.cmp(&b.bucket))
+        });
 
         Self { packages, buckets }
     }
@@ -31,15 +44,41 @@ impl SearchIndex {
         &self.buckets
     }
 
+    pub fn bucket_package_count(&self, bucket: &str) -> usize {
+        self.packages
+            .iter()
+            .filter(|p| p.bucket.eq_ignore_ascii_case(bucket))
+            .count()
+    }
+
     pub fn all_packages(&self) -> &[PackageManifest] {
         &self.packages
     }
 
     pub fn find(&self, name: &str) -> Option<&PackageManifest> {
-        self.packages.iter().find(|p| p.name.eq_ignore_ascii_case(name))
+        self.packages
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(name))
     }
 
-    pub fn search<'a>(&'a self, query: &str, bucket_filter: Option<&str>) -> Vec<&'a PackageManifest> {
+    pub fn find_in_bucket(&self, name: &str, bucket: Option<&str>) -> Option<&PackageManifest> {
+        if let Some(b) = bucket.filter(|b| !b.is_empty()) {
+            if let Some(found) = self
+                .packages
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case(name) && p.bucket.eq_ignore_ascii_case(b))
+            {
+                return Some(found);
+            }
+        }
+        self.find(name)
+    }
+
+    pub fn search<'a>(
+        &'a self,
+        query: &str,
+        bucket_filter: Option<&str>,
+    ) -> Vec<&'a PackageManifest> {
         let q = query.trim().to_ascii_lowercase();
 
         let mut matches: Vec<(&'a PackageManifest, u8)> = self
@@ -60,11 +99,13 @@ impl SearchIndex {
 
                 let name_lower = p.name.to_ascii_lowercase();
                 if name_lower == q {
-                    Some((p, 3)) // exact name match
+                    Some((p, 4)) // exact name match
                 } else if name_lower.starts_with(&q) {
-                    Some((p, 2)) // name prefix match
+                    Some((p, 3)) // name prefix match
                 } else if name_lower.contains(&q) {
-                    Some((p, 1)) // name substring match
+                    Some((p, 2)) // name substring match
+                } else if p.bins.iter().any(|b| b.to_ascii_lowercase().contains(&q)) {
+                    Some((p, 1)) // executable/shim name match
                 } else if p.description.to_ascii_lowercase().contains(&q) {
                     Some((p, 0)) // description match
                 } else {
@@ -73,9 +114,13 @@ impl SearchIndex {
             })
             .collect();
 
-        // Sort by score descending, then by name alphabetically
+        // Sort by relevance descending, then by name alphabetically (case-insensitive)
         matches.sort_by(|a, b| {
-            b.1.cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name))
+            b.1.cmp(&a.1).then_with(|| {
+                a.0.name
+                    .to_ascii_lowercase()
+                    .cmp(&b.0.name.to_ascii_lowercase())
+            })
         });
 
         matches.into_iter().map(|(p, _)| p).collect()
@@ -99,16 +144,17 @@ impl BucketScanner {
             }
         };
 
+        let mut bucket_names: Vec<String> = Vec::new();
         let mut files_to_scan: Vec<(String, String, PathBuf)> = Vec::new();
 
         for entry in bucket_entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                let bucket_name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
+                let bucket_name = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(name) if !name.starts_with('.') => name.to_string(),
+                    _ => continue,
+                };
+                bucket_names.push(bucket_name.clone());
 
                 // Scoop manifests live in <bucket>/bucket/*.json or root *.json in simple buckets
                 let manifest_dir = path.join("bucket");
@@ -123,7 +169,11 @@ impl BucketScanner {
                         let m_path = m_entry.path();
                         if m_path.extension().and_then(|ext| ext.to_str()) == Some("json") {
                             if let Some(stem) = m_path.file_stem().and_then(|s| s.to_str()) {
-                                files_to_scan.push((stem.to_string(), bucket_name.clone(), m_path));
+                                files_to_scan.push((
+                                    stem.to_string(),
+                                    bucket_name.clone(),
+                                    m_path,
+                                ));
                             }
                         }
                     }
@@ -131,26 +181,24 @@ impl BucketScanner {
             }
         }
 
-        // Parallel parse JSON manifests
+        // Parallel parse JSON manifests off the UI thread via Rayon
         let packages: Vec<PackageManifest> = files_to_scan
             .into_par_iter()
-            .filter_map(|(name, bucket, path)| {
-                match fs::read_to_string(&path) {
-                    Ok(content) => match PackageManifest::from_json(&name, &bucket, &content) {
-                        Ok(pkg) => Some(pkg),
-                        Err(e) => {
-                            log::debug!("Skipping malformed manifest at {:?}: {}", path, e);
-                            None
-                        }
-                    },
+            .filter_map(|(name, bucket, path)| match fs::read_to_string(&path) {
+                Ok(content) => match PackageManifest::from_json(&name, &bucket, &content) {
+                    Ok(pkg) => Some(pkg),
                     Err(e) => {
-                        log::debug!("Failed reading manifest {:?}: {}", path, e);
+                        log::debug!("Skipping malformed manifest at {:?}: {}", path, e);
                         None
                     }
+                },
+                Err(e) => {
+                    log::debug!("Failed reading manifest {:?}: {}", path, e);
+                    None
                 }
             })
             .collect();
 
-        SearchIndex::new(packages)
+        SearchIndex::with_buckets(packages, bucket_names)
     }
 }

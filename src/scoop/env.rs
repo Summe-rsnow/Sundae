@@ -8,14 +8,29 @@ pub struct ScoopEnv {
 impl ScoopEnv {
     pub fn detect() -> Self {
         let root = if let Some(scoop_env) = std::env::var_os("SCOOP") {
-            PathBuf::from(scoop_env)
-        } else if let Some(home) = dirs::home_dir() {
-            home.join("scoop")
+            let p = PathBuf::from(scoop_env);
+            if !p.as_os_str().is_empty() {
+                p
+            } else {
+                Self::default_root()
+            }
         } else {
-            PathBuf::from(r"C:\scoop")
+            Self::default_root()
         };
 
         Self { root }
+    }
+
+    pub fn from_root(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    fn default_root() -> PathBuf {
+        if let Some(home) = dirs::home_dir() {
+            home.join("scoop")
+        } else {
+            PathBuf::from(r"C:\scoop")
+        }
     }
 
     pub fn is_installed(&self) -> bool {
@@ -32,5 +47,9 @@ impl ScoopEnv {
 
     pub fn shims_dir(&self) -> PathBuf {
         self.root.join("shims")
+    }
+
+    pub fn persist_dir(&self) -> PathBuf {
+        self.root.join("persist")
     }
 }

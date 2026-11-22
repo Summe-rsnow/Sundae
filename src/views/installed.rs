@@ -1,19 +1,25 @@
-use crate::scoop::installed::AppInstallStatus;
-use crate::scoop::process::ScoopOp;
-use crate::store::AppState;
-use crate::ui::*;
+//! Installed applications view: virtualized list of installed Scoop packages with
+//! hold/unhold version lock, directory & manifest launchers (via OS commands, never `open_url`),
+//! package detail preview, and destructive uninstall confirmation dialog.
+
 use nsh_base::theme;
 use nsh_core::prelude::*;
-use std::process::Command;
 
-pub fn installed_view(state: AppState) -> impl IntoElement {
-    let installed_sig = state.installed_apps;
-    let local_search = signal(String::new());
+use crate::scoop::installed::{open_directory, open_local_file, AppInstallStatus};
+use crate::scoop::process::ScoopOp;
+use crate::store;
+use crate::ui::{
+    action_sm, empty_state, icon_action, icons, radius, search_input, status_badge, ButtonKind,
+    IconKind, ValueTone,
+};
+
+pub fn installed_view() -> impl IntoElement {
+    let apps = computed(store::filtered_installed_apps);
 
     view()
         .flex_1()
         .h_full()
-        .p_6()
+        .p_5()
         .gap_4()
         .child(
             // Header bar
@@ -21,231 +27,243 @@ pub fn installed_view(state: AppState) -> impl IntoElement {
                 .flex_row()
                 .items_center()
                 .justify_between()
+                .gap_3()
                 .child(
                     view()
                         .flex_row()
                         .items_center()
-                        .gap_3()
-                        .child(text("已安装应用").text_xl().font_weight(FontWeight::BOLD))
-                        .child(dynamic({
-                            move || {
-                                let count = installed_sig.with(|apps| apps.len());
-                                app_badge(format!("共 {} 个", count), BadgeVariant::Primary).into_element()
-                            }
-                        })),
+                        .gap_2()
+                        .child(
+                            text("已安装应用")
+                                .role(AccessibilityRole::Header)
+                                .text_lg()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(move || theme().foreground),
+                        )
+                        .child(status_badge(
+                            move || format!("共 {} 个", store::installed_count()),
+                            ValueTone::Info,
+                        )),
                 )
                 .child(
-                    view()
-                        .w(px(260.0))
-                        .child(search_bar(
-                            "过滤已安装应用...",
-                            local_search,
-                            move |t| local_search.set(t),
-                        )),
+                    view().w(px(280.0)).child(search_input(
+                        store::installed_filter,
+                        "过滤已安装应用…",
+                        "过滤已安装应用",
+                        |text| store::set_installed_filter(text),
+                        || store::set_installed_filter(""),
+                    )),
                 ),
         )
         .child(
-            // List of installed applications
-            dynamic({
-                let state = state.clone();
-                move || {
-                    let filter_text = local_search.get().trim().to_ascii_lowercase();
-                    let apps: Vec<_> = installed_sig.with(|list| {
-                        list.iter()
-                            .filter(|app| {
-                                filter_text.is_empty()
-                                    || app.name.to_ascii_lowercase().contains(&filter_text)
-                            })
-                            .cloned()
-                            .collect()
-                    });
+            // Virtualized installed apps list (zero per-row local signals)
+            virtual_list(move || apps.with(Vec::len), move |at| {
+                let app = computed(move || apps.with(|list| list.get(at.index()).cloned()));
+                let status = computed(move || {
+                    app.with(|a| {
+                        a.as_ref()
+                            .map(|x| x.status)
+                            .unwrap_or(AppInstallStatus::Installed)
+                    })
+                });
+                let is_failed = move || status.get() == AppInstallStatus::Failed;
+                let is_held = move || status.get() == AppInstallStatus::Held;
 
-                    if apps.is_empty() {
-                        return view()
+                view()
+                    .w_full()
+                    .px_4()
+                    .py_3()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .rounded(radius)
+                    .border_1()
+                    .border_color(move || theme().border)
+                    .bg(move || theme().card)
+                    .hover(|s| s.bg(move || theme().muted))
+                    .child(
+                        view()
                             .flex_1()
+                            .min_w(px(0.0))
+                            .gap_1()
+                            .child(
+                                view()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        text(move || {
+                                            app.with(|a| {
+                                                a.as_ref()
+                                                    .map(|x| x.name.clone())
+                                                    .unwrap_or_default()
+                                            })
+                                        })
+                                        .text_sm()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(move || theme().foreground),
+                                    )
+                                    .child(status_badge(
+                                        move || {
+                                            app.with(|a| {
+                                                a.as_ref()
+                                                    .map(|x| format!("v{}", x.version))
+                                                    .unwrap_or_default()
+                                            })
+                                        },
+                                        ValueTone::Neutral,
+                                    ))
+                                    .child(when(
+                                        move || {
+                                            app.with(|a| {
+                                                a.as_ref().and_then(|x| x.bucket.as_ref()).is_some()
+                                            })
+                                        },
+                                        move || {
+                                            status_badge(
+                                                move || {
+                                                    app.with(|a| {
+                                                        a.as_ref()
+                                                            .and_then(|x| x.bucket.clone())
+                                                            .unwrap_or_default()
+                                                    })
+                                                },
+                                                ValueTone::Info,
+                                            )
+                                        },
+                                    ))
+                                    .child(when(is_held, || {
+                                        status_badge("已锁定版本", ValueTone::Warn)
+                                    }))
+                                    .child(when(is_failed, || {
+                                        status_badge("安装异常", ValueTone::Bad)
+                                    })),
+                            )
+                            .child(
+                                text(move || {
+                                    app.with(|a| {
+                                        a.as_ref()
+                                            .map(|x| x.path.display().to_string())
+                                            .unwrap_or_default()
+                                    })
+                                })
+                                .number_of_lines(1)
+                                .text_xs()
+                                .text_color(move || theme().muted_foreground),
+                            ),
+                    )
+                    .child(
+                        view()
+                            .flex_shrink_0()
+                            .flex_row()
                             .items_center()
-                            .justify_center()
-                            .gap_3()
-                            .child(package_icon(36.0))
-                            .child(text("暂无匹配的已安装应用").text_base().font_weight(FontWeight::MEDIUM))
-                            .child(text("你可以前往「探索」视图快速检索并安装应用").text_xs().text_color(move || theme().muted_foreground))
-                            .into_element();
-                    }
-
-                    let mut list_container = view().gap_2();
-
-                    for app in apps {
-                        let app_name = app.name.clone();
-                        let app_path = app.path.clone();
-                        let app_path_clone = app.path.clone();
-                        let manifest_path = app.manifest_path.clone();
-                        let status = app.status;
-                        let is_held = app.is_held();
-                        let is_failed = app.is_failed();
-                        let s_clone = state.clone();
-                        let name_hold = app_name.clone();
-                        let name_uninstall = app_name.clone();
-
-                        list_container = list_container.child(
-                            app_card()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .p_4()
-                                .child(
-                                    view()
-                                        .flex_1()
-                                        .gap_1()
-                                        .child(
-                                            view()
-                                                .flex_row()
-                                                .items_center()
-                                                .gap_2()
-                                                .child(text(app.name).text_base().font_weight(FontWeight::BOLD))
-                                                .child(app_badge(format!("v{}", app.version), BadgeVariant::Secondary))
-                                                .child(match status {
-                                                    AppInstallStatus::Held => app_badge("已锁定版本 (Hold)", BadgeVariant::Warning).into_element(),
-                                                    AppInstallStatus::Failed => app_badge("安装损坏/未完成", BadgeVariant::Danger).into_element(),
-                                                    AppInstallStatus::Installed => view().into_element(),
-                                                }),
-                                        )
-                                        .child(
-                                            text(format!("路径: {}", app.path.display()))
-                                                .text_xs()
-                                                .text_color(move || theme().muted_foreground),
-                                        ),
-                                )
-                                .child(
+                            .gap_1p5()
+                            .child(when(is_failed, move || {
+                                view()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(action_sm(ButtonKind::Primary, "修复重装", move || {
+                                        if let Some(a) = app.get_untracked() {
+                                            store::enqueue_op(ScoopOp::Install(a.name));
+                                        }
+                                    }))
+                                    .child(action_sm(ButtonKind::Destructive, "清理", move || {
+                                        if let Some(a) = app.get_untracked() {
+                                            store::request_uninstall(a.name);
+                                        }
+                                    }))
+                            }))
+                            .child(when(
+                                move || !is_failed(),
+                                move || {
                                     view()
                                         .flex_row()
                                         .items_center()
-                                        .gap_2()
-                                        .child(if is_failed {
-                                            // Actions for broken/failed installs
-                                            view()
-                                                .flex_row()
-                                                .gap_2()
-                                                .child(app_button_with_icon(
-                                                    refresh_icon(13.0),
-                                                    "重新安装",
-                                                    ButtonVariant::Primary,
-                                                    ButtonSize::Sm,
-                                                    {
-                                                        let s = s_clone.clone();
-                                                        let n = name_hold.clone();
-                                                        move || s.enqueue_op(ScoopOp::Install(n.clone()))
-                                                    },
-                                                ))
-                                                .child(app_button_with_icon(
-                                                    trash_icon(13.0),
-                                                    "清理",
-                                                    ButtonVariant::Danger,
-                                                    ButtonSize::Sm,
-                                                    {
-                                                        let s = s_clone.clone();
-                                                        let n = name_uninstall.clone();
-                                                        move || s.enqueue_op(ScoopOp::Uninstall(n.clone()))
-                                                    },
-                                                ))
-                                                .into_element()
-                                        } else {
-                                            // Actions for normal/held installs
-                                            view()
-                                                .flex_row()
-                                                .gap_2()
-                                                .child(app_button_with_icon(
-                                                    if is_held { unlock_icon(13.0) } else { lock_icon(13.0) },
-                                                    if is_held { "解锁" } else { "锁定" },
-                                                    ButtonVariant::Secondary,
-                                                    ButtonSize::Sm,
-                                                    {
-                                                        let s = s_clone.clone();
-                                                        let n = name_hold.clone();
-                                                        let p_dir = app_path_clone.clone();
-                                                        move || {
-                                                            if is_held {
-                                                                s.enqueue_op(ScoopOp::Unhold(n.clone()));
-                                                                // Also update local scoop-install.json immediately
-                                                                for fname in &["scoop-install.json", "install.json"] {
-                                                                    let p = p_dir.join(fname);
-                                                                    if p.exists() {
-                                                                        if let Ok(c) = std::fs::read_to_string(&p) {
-                                                                            if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&c) {
-                                                                                if let Some(obj) = val.as_object_mut() {
-                                                                                    obj.remove("hold");
-                                                                                    let _ = std::fs::write(&p, serde_json::to_string_pretty(&obj).unwrap_or_default());
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            } else {
-                                                                s.enqueue_op(ScoopOp::Hold(n.clone()));
-                                                                for fname in &["scoop-install.json", "install.json"] {
-                                                                    let p = p_dir.join(fname);
-                                                                    if p.exists() {
-                                                                        if let Ok(c) = std::fs::read_to_string(&p) {
-                                                                            if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&c) {
-                                                                                if let Some(obj) = val.as_object_mut() {
-                                                                                    obj.insert("hold".to_string(), serde_json::Value::Bool(true));
-                                                                                    let _ = std::fs::write(&p, serde_json::to_string_pretty(&obj).unwrap_or_default());
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                            s.refresh_all();
+                                        .gap_1p5()
+                                        .child(action_sm(ButtonKind::Ghost, "详情", move || {
+                                            if let Some(a) = app.get_untracked() {
+                                                if let Some(manifest) = store::find_manifest(
+                                                    &a.name,
+                                                    a.bucket.as_deref(),
+                                                ) {
+                                                    store::open_package_detail(manifest);
+                                                } else {
+                                                    store::notices().notify_info(format!(
+                                                        "未在当前 Bucket 索引中找到 {} 的清单详情",
+                                                        a.name
+                                                    ));
+                                                }
+                                            }
+                                        }))
+                                        .child(action_sm(
+                                            ButtonKind::Secondary,
+                                            move || if is_held() { "解锁" } else { "锁定" },
+                                            move || {
+                                                if let Some(a) = app.get_untracked() {
+                                                    store::toggle_hold(&a);
+                                                }
+                                            },
+                                        ))
+                                        .child(icon_action(
+                                            IconKind::Subtle,
+                                            icons::FOLDER,
+                                            "打开安装目录",
+                                            move || {
+                                                if let Some(a) = app.get_untracked() {
+                                                    if let Err(err) = open_directory(&a.path) {
+                                                        store::notices().notify_bad(format!(
+                                                            "无法打开目录：{err}"
+                                                        ));
+                                                    }
+                                                }
+                                            },
+                                        ))
+                                        .child(icon_action(
+                                            IconKind::Subtle,
+                                            icons::FILE_TEXT,
+                                            "打开 manifest.json",
+                                            move || {
+                                                if let Some(a) = app.get_untracked() {
+                                                    if a.manifest_path.exists() {
+                                                        if let Err(err) =
+                                                            open_local_file(&a.manifest_path)
+                                                        {
+                                                            store::notices().notify_bad(format!(
+                                                                "无法打开清单文件：{err}"
+                                                            ));
                                                         }
-                                                    },
-                                                ))
-                                                .child(app_button_with_icon(
-                                                    folder_icon(13.0),
-                                                    "打开目录",
-                                                    ButtonVariant::Secondary,
-                                                    ButtonSize::Sm,
-                                                    move || {
-                                                        let _ = Command::new("explorer").arg(&app_path).spawn();
-                                                    },
-                                                ))
-                                                .child(app_button_with_icon(
-                                                    file_text_icon(13.0),
-                                                    "配置",
-                                                    ButtonVariant::Secondary,
-                                                    ButtonSize::Sm,
-                                                    move || {
-                                                        if manifest_path.exists() {
-                                                            let _ = Command::new("cmd")
-                                                                .args(["/c", "start", "", &manifest_path.to_string_lossy()])
-                                                                .spawn();
-                                                        }
-                                                    },
-                                                ))
-                                                .child(app_button_with_icon(
-                                                    trash_icon(13.0),
-                                                    "卸载",
-                                                    ButtonVariant::Danger,
-                                                    ButtonSize::Sm,
-                                                    {
-                                                        let s_un = state.clone();
-                                                        let n = name_uninstall.clone();
-                                                        move || {
-                                                            s_un.enqueue_op(ScoopOp::Uninstall(n.clone()));
-                                                        }
-                                                    },
-                                                ))
-                                                .into_element()
-                                        }),
-                                ),
-                        );
-                    }
-
-                    scroll()
-                        .flex_1()
-                        .pr_4()
-                        .child(list_container)
-                        .into_element()
-                }
-            }),
+                                                    } else {
+                                                        store::notices()
+                                                            .notify_warn("未找到本地 manifest.json");
+                                                    }
+                                                }
+                                            },
+                                        ))
+                                        .child(icon_action(
+                                            IconKind::Danger,
+                                            icons::TRASH,
+                                            "卸载应用",
+                                            move || {
+                                                if let Some(a) = app.get_untracked() {
+                                                    store::request_uninstall(a.name);
+                                                }
+                                            },
+                                        ))
+                                },
+                            )),
+                    )
+            })
+            .keys(move || {
+                apps.with(|list| list.iter().map(|a| a.name.clone()).collect::<Vec<_>>())
+            })
+            .estimated_item_size(px(74.0))
+            .row_gap(px(8.0))
+            .empty(empty_state(
+                "暂无匹配的已安装应用",
+                "你可以前往「探索」视图快速搜索并安装 Scoop 应用",
+            ))
+            .flex_1(),
         )
 }

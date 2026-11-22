@@ -1,223 +1,267 @@
-use crate::scoop::process::ScoopOp;
-use crate::store::AppState;
-use crate::ui::*;
-use nsh_base::{button, theme};
+//! Discover view: instant search across thousands of Scoop bucket manifests,
+//! horizontal bucket filter chips, and a zero-jank `virtual_list` with zero
+//! per-row local signals.
+
+use nsh_base::{button as base_button, theme};
 use nsh_core::prelude::*;
 
-pub fn discover_view(state: AppState) -> impl IntoElement {
-    let query_sig = state.search_query;
-    let filter_sig = state.selected_bucket_filter;
-    let index_sig = state.search_index;
-    let is_indexing_sig = state.is_indexing;
-    let installed_sig = state.installed_apps;
+use crate::scoop::process::ScoopOp;
+use crate::store;
+use crate::ui::{
+    action_sm, empty_state, filter_chip, focus_ring, radius, search_input, status_badge,
+    ButtonKind, ValueTone,
+};
+
+pub fn discover_view() -> impl IntoElement {
+    let results = computed(store::filtered_discover_packages);
+    let buckets_memo = computed(store::buckets);
 
     view()
         .flex_1()
         .h_full()
-        .p_6()
-        .gap_4()
+        .p_5()
+        .gap_3()
         .child(
-            // Top search and filters bar
+            // Header & Search Bar
             view()
                 .gap_3()
                 .child(
                     view()
                         .flex_row()
                         .items_center()
+                        .justify_between()
                         .gap_3()
-                        .child(search_bar(
-                            "快速搜索应用或描述 (例如: git, ripgrep, neovim)...",
-                            query_sig,
-                            move |text| query_sig.set(text),
-                        )),
+                        .child(
+                            view()
+                                .flex_row()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    text("探索软件")
+                                        .role(AccessibilityRole::Header)
+                                        .text_lg()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(move || theme().foreground),
+                                )
+                                .child(status_badge(
+                                    move || format!("{} 项结果", results.with(Vec::len)),
+                                    ValueTone::Neutral,
+                                )),
+                        )
+                        .child(
+                            view().w(px(320.0)).child(search_input(
+                                store::search_query,
+                                "搜索软件名称、命令或描述 (如 git, ripgrep)…",
+                                "搜索软件",
+                                |text| store::set_search_query(text),
+                                || store::set_search_query(""),
+                            )),
+                        ),
                 )
                 .child(
-                    // Bucket Filter Chips
-                    dynamic({
-                        move || {
-                            let buckets = index_sig.with(|i| i.buckets().to_vec());
-                            let current_filter = filter_sig.get();
-
-                            let mut chips = view().flex_row().items_center().gap_2();
-
-                            // "All" chip
-                            let is_all = current_filter.is_none();
-                            chips = chips.child(
-                                button()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded(px(999.0))
-                                    .bg(move || {
-                                        if is_all {
-                                            theme().primary
-                                        } else {
-                                            theme().muted
-                                        }
-                                    })
-                                    .on_press(move || filter_sig.set(None))
-                                    .child(
-                                        text("全部源")
-                                            .text_xs()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(move || {
-                                                if is_all {
-                                                    theme().primary_foreground
-                                                } else {
-                                                    theme().foreground
-                                                }
-                                            }),
-                                    ),
-                            );
-
-                            for b in buckets {
-                                let b_clone = b.clone();
-                                let is_active = current_filter.as_deref() == Some(&b);
-                                chips = chips.child(
-                                    button()
-                                        .px_3()
-                                        .py_1()
-                                        .rounded(px(999.0))
-                                        .bg(move || {
-                                            if is_active {
-                                                theme().primary
-                                            } else {
-                                                theme().muted
-                                            }
-                                        })
-                                        .on_press(move || filter_sig.set(Some(b_clone.clone())))
-                                        .child(
-                                            text(b)
-                                                .text_xs()
-                                                .font_weight(FontWeight::MEDIUM)
-                                                .text_color(move || {
-                                                    if is_active {
-                                                        theme().primary_foreground
-                                                    } else {
-                                                        theme().foreground
-                                                    }
-                                                }),
-                                        ),
-                                );
-                            }
-
-                            chips.into_element()
-                        }
-                    }),
+                    // Bucket filter chip bar (horizontal scroll + `each`, zero `dynamic`)
+                    scroll().horizontal().scrollbar(false).child(
+                        view()
+                            .test_id("bucket-filters")
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(filter_chip(
+                                move || store::bucket_filter().is_none(),
+                                "全部源",
+                                || store::set_bucket_filter(None),
+                            ))
+                            .child(each(
+                                buckets_memo,
+                                |bucket: &String| bucket.clone(),
+                                |bucket_sig, _idx| {
+                                    let name_press = bucket_sig.get_untracked();
+                                    let name_label = name_press.clone();
+                                    filter_chip(
+                                        move || {
+                                            bucket_sig.with(|b| {
+                                                store::bucket_filter().as_deref()
+                                                    == Some(b.as_str())
+                                            })
+                                        },
+                                        name_label,
+                                        move || store::set_bucket_filter(Some(name_press.clone())),
+                                    )
+                                },
+                            )),
+                    ),
                 ),
         )
         .child(
-            // Results list
-            dynamic({
-                let state = state.clone();
+            // Loading state when indexing with no cached items yet
+            when(
+                move || store::is_indexing() && results.with(Vec::is_empty),
+                || {
+                    empty_state(
+                        "正在后台扫描本地 Bucket 索引…",
+                        "使用多线程并行解析 Scoop Manifest，界面保持响应",
+                    )
+                },
+            ),
+        )
+        .child(
+            // Virtualized package list (zero per-row local signals)
+            when(
+                move || !(store::is_indexing() && results.with(Vec::is_empty)),
                 move || {
-                    if is_indexing_sig.get() {
-                        return view()
-                            .flex_1()
+                    virtual_list(move || results.with(Vec::len), move |at| {
+                        let pkg = computed(move || {
+                            results.with(|items| items.get(at.index()).cloned())
+                        });
+                        let is_installed = computed(move || {
+                            pkg.with(|p| {
+                                p.as_ref()
+                                    .is_some_and(|m| store::is_installed_package(&m.name))
+                            })
+                        });
+
+                        view()
+                            .w_full()
+                            .px_4()
+                            .py_3()
+                            .flex_row()
                             .items_center()
-                            .justify_center()
-                            .child(text("正在建立本地 Bucket 索引...").text_sm().text_color(move || theme().muted_foreground))
-                            .into_element();
-                    }
-
-                    let query = query_sig.get();
-                    let bucket_filter = filter_sig.get();
-
-                    let results: Vec<_> = index_sig.with(|idx| {
-                        idx.search(&query, bucket_filter.as_deref())
-                            .into_iter()
-                            .take(150) // Render up to 150 items for crisp performance
-                            .cloned()
-                            .collect()
-                    });
-
-                    if results.is_empty() {
-                        return view()
-                            .flex_1()
-                            .items_center()
-                            .justify_center()
+                            .justify_between()
                             .gap_3()
-                            .child(search_icon(36.0))
-                            .child(text("没有找到符合条件的应用").text_base().font_weight(FontWeight::MEDIUM))
-                            .child(text("请检查搜索关键词或尝试切换 Bucket 源").text_xs().text_color(move || theme().muted_foreground))
-                            .into_element();
-                    }
-
-                    let mut list = view().gap_2();
-
-                    for pkg in results {
-                        let pkg_name = pkg.name.clone();
-                        let is_installed = installed_sig.with(|apps| apps.iter().any(|a| a.name == pkg_name));
-                        let s_clone = state.clone();
-                        let pkg_name_clone = pkg.name.clone();
-
-                        list = list.child(
-                            app_card()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .p_4()
-                                .child(
-                                    view()
-                                        .flex_1()
-                                        .gap_1()
-                                        .child(
-                                            view()
-                                                .flex_row()
-                                                .items_center()
-                                                .gap_2()
-                                                .child(text(pkg.name).text_base().font_weight(FontWeight::BOLD))
-                                                .child(app_badge(pkg.bucket, BadgeVariant::Secondary))
-                                                .child(text(format!("v{}", pkg.version)).text_xs().text_color(move || theme().muted_foreground)),
-                                        )
-                                        .child({
-                                            let desc = if pkg.description.is_empty() {
-                                                "暂无描述".to_string()
-                                            } else {
-                                                pkg.description
-                                            };
-                                            text(desc).text_sm().text_color(move || theme().muted_foreground)
-                                        }),
-                                )
-                                .child(
-                                    view()
-                                        .items_center()
-                                        .gap_2()
-                                        .child(if is_installed {
-                                            view()
-                                                .flex_row()
-                                                .items_center()
-                                                .gap_2()
-                                                .child(app_badge("已安装", BadgeVariant::Success))
-                                                .child(app_button(
-                                                    "重装",
-                                                    ButtonVariant::Secondary,
-                                                    ButtonSize::Sm,
-                                                    move || {
-                                                        s_clone.enqueue_op(ScoopOp::Install(pkg_name_clone.clone()));
-                                                    },
-                                                ))
-                                                .into_element()
-                                        } else {
-                                            app_button(
-                                                "安装",
-                                                ButtonVariant::Primary,
-                                                ButtonSize::Sm,
-                                                move || {
-                                                    s_clone.enqueue_op(ScoopOp::Install(pkg_name_clone.clone()));
-                                                },
+                            .rounded(radius)
+                            .border_1()
+                            .border_color(move || theme().border)
+                            .bg(move || theme().card)
+                            .hover(|s| s.bg(move || theme().muted))
+                            .child(
+                                // Clickable package summary opening Package Detail Dialog
+                                base_button()
+                                    .flex_1()
+                                    .min_w(px(0.0))
+                                    .items_start()
+                                    .gap_1()
+                                    .rounded(px(4.0))
+                                    .focus_visible(focus_ring)
+                                    .accessibility_label(move || {
+                                        Some(SharedString::from(pkg.with(|p| {
+                                            p.as_ref()
+                                                .map(|m| format!("查看 {} 详情", m.name))
+                                                .unwrap_or_default()
+                                        })))
+                                    })
+                                    .on_press(move || {
+                                        if let Some(m) = pkg.get_untracked() {
+                                            store::open_package_detail(m);
+                                        }
+                                    })
+                                    .child(
+                                        view()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                text(move || {
+                                                    pkg.with(|p| {
+                                                        p.as_ref()
+                                                            .map(|m| m.name.clone())
+                                                            .unwrap_or_default()
+                                                    })
+                                                })
+                                                .text_sm()
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .text_color(move || theme().foreground),
                                             )
-                                            .into_element()
-                                        }),
-                                ),
-                        );
-                    }
-
-                    scroll()
-                        .flex_1()
-                        .pr_4()
-                        .child(list)
-                        .into_element()
-                }
-            }),
+                                            .child(status_badge(
+                                                move || {
+                                                    pkg.with(|p| {
+                                                        p.as_ref()
+                                                            .map(|m| m.bucket.clone())
+                                                            .unwrap_or_default()
+                                                    })
+                                                },
+                                                ValueTone::Info,
+                                            ))
+                                            .child(
+                                                text(move || {
+                                                    pkg.with(|p| {
+                                                        p.as_ref()
+                                                            .map(|m| format!("v{}", m.version))
+                                                            .unwrap_or_default()
+                                                    })
+                                                })
+                                                .text_xs()
+                                                .tabular_nums()
+                                                .text_color(move || theme().muted_foreground),
+                                            ),
+                                    )
+                                    .child(
+                                        text(move || {
+                                            pkg.with(|p| {
+                                                p.as_ref()
+                                                    .map(|m| m.display_description().to_owned())
+                                                    .unwrap_or_default()
+                                            })
+                                        })
+                                        .w_full()
+                                        .number_of_lines(1)
+                                        .text_xs()
+                                        .text_color(move || theme().muted_foreground),
+                                    ),
+                            )
+                            .child(
+                                view()
+                                    .flex_shrink_0()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(when(
+                                        move || is_installed.get(),
+                                        || status_badge("已安装", ValueTone::Ok),
+                                    ))
+                                    .child(action_sm(ButtonKind::Ghost, "详情", move || {
+                                        if let Some(m) = pkg.get_untracked() {
+                                            store::open_package_detail(m);
+                                        }
+                                    }))
+                                    .child(when(
+                                        move || is_installed.get(),
+                                        move || {
+                                            action_sm(ButtonKind::Secondary, "重装", move || {
+                                                if let Some(m) = pkg.get_untracked() {
+                                                    store::enqueue_op(ScoopOp::Install(m.name));
+                                                }
+                                            })
+                                        },
+                                    ))
+                                    .child(when(
+                                        move || !is_installed.get(),
+                                        move || {
+                                            action_sm(ButtonKind::Primary, "安装", move || {
+                                                if let Some(m) = pkg.get_untracked() {
+                                                    store::enqueue_op(ScoopOp::Install(m.name));
+                                                }
+                                            })
+                                        },
+                                    )),
+                            )
+                    })
+                    .keys(move || {
+                        results.with(|items| {
+                            items
+                                .iter()
+                                .map(|p| format!("{}/{}", p.bucket, p.name))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .estimated_item_size(px(74.0))
+                    .row_gap(px(8.0))
+                    .empty(empty_state(
+                        "没有找到匹配的软件包",
+                        "尝试修改搜索关键词，或切换到「全部源」查看所有可用应用",
+                    ))
+                    .test_id("discover-list")
+                    .flex_1()
+                },
+            ),
         )
 }

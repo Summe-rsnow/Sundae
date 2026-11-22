@@ -1,312 +1,467 @@
-use crate::store::{AppState, Route};
-use crate::ui::*;
-use nsh_base::{button, theme};
+//! Desktop application shell for Sundae:
+//! - 48px hidden title bar (`bento::shell::title_bar_shell`) with brand mark, version pill,
+//!   live Scoop status summary, spinning refresh action, terminal drawer toggle, and theme switcher
+//! - 212px left sidebar navigation (`bento::ui::sidebar_nav_item`)
+//! - Main workspace hosting the active view + collapsible bottom virtualized terminal drawer
+//! - System tray, close-button interception (`CloseBehavior`), keyboard shortcuts, floating toasts
+
+use bento::shell::{
+    bind_close_handler, close_behavior_submenu, confirm_close_dialog, theme_mode_segmented,
+    title_bar_shell,
+};
+use nsh_base::{button as base_button, theme};
+use nsh_core::element::desktop::{current_window, quit, set_tray, tray, MenuItem};
 use nsh_core::prelude::*;
 
-pub fn shell_view(state: AppState) -> impl IntoElement {
-    let active_route = state.active_route;
-    let missing_sig = state.is_missing_scoop;
+use crate::dialogs;
+use crate::store::{self, Route};
+use crate::ui::{
+    action, card, color, focus_ring, icons, radius, sidebar_nav_item, status_badge,
+    terminal_drawer, toolbar_separator, ButtonKind, IconKind, ValueTone, MOTION_FAST_MS,
+};
+use crate::views;
 
-    let status_rx = state.task_queue.subscribe_status();
-    let log_rx = state.task_queue.subscribe_logs();
-    let s_poll = state.clone();
+/// Root desktop screen of Sundae.
+pub fn screen() -> impl IntoElement {
+    let win = current_window();
+    let close_confirm_open = signal(false);
 
-    set_interval(std::time::Duration::from_millis(100), move || {
-        s_poll.poll_tasks(&status_rx, &log_rx);
+    // Background task poller & floating toast auto-dismiss effect
+    store::start_task_poller();
+    store::notices().install_auto_dismiss();
+
+    // Desktop keyboard shortcuts
+    on_key("mod+r", |_| store::refresh_all());
+    on_key("mod+j", |_| store::toggle_terminal());
+    on_key("escape", move |_| {
+        if close_confirm_open.get_untracked() {
+            close_confirm_open.set(false);
+        } else {
+            store::dismiss_top_dialog();
+        }
     });
+
+    // Window close-button interception honoring CloseBehavior
+    bind_close_handler(win.clone(), store::close_behavior_untracked, move || {
+        close_confirm_open.set(true);
+    });
+
+    // System tray reflecting live CloseBehavior & allowing quick window restore/quit
+    let win_tray = win.clone();
+    effect(move || {
+        let behavior = store::close_behavior();
+        let show_win = win_tray.clone();
+        let show_win_click = win_tray.clone();
+        let updates_win = win_tray.clone();
+
+        set_tray(
+            tray()
+                .icon(icons::tray_icon_src())
+                .tooltip("Sundae — Scoop 包管理器")
+                .on_click(move |_| {
+                    show_win_click.show();
+                    show_win_click.focus();
+                })
+                .menu([
+                    MenuItem::new("显示主窗口").on_select(move || {
+                        show_win.show();
+                        show_win.focus();
+                    }),
+                    MenuItem::new("检查软件更新").on_select(move || {
+                        updates_win.show();
+                        updates_win.focus();
+                        store::set_route(Route::Updates);
+                        store::refresh_all();
+                    }),
+                    MenuItem::separator(),
+                    close_behavior_submenu(behavior, store::set_close_behavior),
+                    MenuItem::separator(),
+                    MenuItem::new("退出 Sundae").on_select(quit),
+                ]),
+        );
+    });
+    cleanup(|| set_tray(None));
+
+    let any_dialog_open = move || {
+        close_confirm_open.get()
+            || store::about_open()
+            || store::detail_target().is_some()
+            || store::uninstall_target().is_some()
+            || store::remove_bucket_target().is_some()
+    };
 
     view()
         .flex_1()
+        .relative()
         .bg(move || theme().background)
-        .text_color(move || theme().foreground)
+        .child(title_bar())
         .child(
             view()
                 .flex_1()
+                .min_h(px(0.0))
                 .flex_row()
+                .child(sidebar())
+                .child(workspace()),
+        )
+        // Floating bottom notice toast (hidden while modal dialogs are open)
+        .child(store::notices().overlay(move || !any_dialog_open()))
+        // Modal overlays
+        .child(dialogs::package_detail_overlay())
+        .child(dialogs::confirm_uninstall_overlay())
+        .child(dialogs::confirm_remove_bucket_overlay())
+        .child(dialogs::about_dialog_overlay())
+        .child(when(
+            move || close_confirm_open.get(),
+            move || {
+                confirm_close_dialog(
+                    close_confirm_open,
+                    win.clone(),
+                    "Sundae",
+                    store::set_close_behavior,
+                )
+            },
+        ))
+}
+
+fn title_bar() -> impl IntoElement {
+    let left = view()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(icons::sundae_logo(22.0))
+        .child(
+            text("Sundae")
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(move || theme().foreground),
+        )
+        .child(
+            view().window_drag(false).child(
+                base_button()
+                    .on_press(|| store::set_about_open(true))
+                    .accessibility_label("关于 Sundae")
+                    .px_2()
+                    .h(px(22.0))
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(move || theme().muted)
+                    .hover(|s| s.bg(move || theme().accent))
+                    .active(|s| s.scale(0.96))
+                    .transition_transform()
+                    .duration(MOTION_FAST_MS)
+                    .focus_visible(focus_ring)
+                    .child(
+                        text(format!("v{}", crate::APP_VERSION))
+                            .text_xs()
+                            .tabular_nums()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(move || theme().muted_foreground),
+                    ),
+            ),
+        );
+
+    let center = view()
+        .flex_1()
+        .min_w(px(0.0))
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .child(
+            text(move || {
+                if store::is_missing_scoop() {
+                    "未检测到本地 Scoop 环境".to_owned()
+                } else if store::is_indexing() {
+                    "正在后台扫描本地 Bucket 索引…".to_owned()
+                } else {
+                    format!(
+                        "已安装 {} · 可更新 {} · {} 个源",
+                        store::installed_count(),
+                        store::updates_count(),
+                        store::bucket_count()
+                    )
+                }
+            })
+            .number_of_lines(1)
+            .text_xs()
+            .tabular_nums()
+            .text_color(move || theme().muted_foreground),
+        )
+        .child(when(store::is_task_running, || {
+            status_badge(
+                move || {
+                    store::running_task_label().unwrap_or_else(|| "任务执行中".to_owned())
+                },
+                ValueTone::Warn,
+            )
+        }));
+
+    let right = view()
+        .flex_row()
+        .items_center()
+        .gap(px(6.0))
+        .child(crate::ui::icon_action_spinning_with_tip(
+            IconKind::Secondary,
+            icons::REFRESH,
+            "刷新索引",
+            "刷新 Scoop 索引 (Ctrl+R)",
+            store::is_indexing,
+            store::is_indexing,
+            store::refresh_all,
+        ))
+        .child(crate::ui::icon_action_with_tip(
+            IconKind::Secondary,
+            icons::TERMINAL,
+            "切换终端抽屉",
+            move || {
+                if store::terminal_open() {
+                    "收起终端抽屉 (Ctrl+J)"
+                } else {
+                    "展开终端抽屉 (Ctrl+J)"
+                }
+            },
+            || false,
+            store::toggle_terminal,
+        ))
+        .child(toolbar_separator())
+        .child(theme_mode_segmented(
+            store::theme_mode,
+            store::set_theme_mode,
+        ));
+
+    title_bar_shell(48.0, left, center, right).bg(move || theme().sidebar)
+}
+
+fn sidebar() -> impl IntoElement {
+    view()
+        .w(px(212.0))
+        .flex_shrink_0()
+        .h_full()
+        .bg(move || theme().sidebar)
+        .border_r_1()
+        .border_color(move || color("sidebar-border"))
+        .p_3()
+        .gap_2()
+        .child(
+            view()
+                .flex_1()
+                .gap_1()
+                .child(sidebar_nav_item(
+                    move || store::active_route() == Route::Discover,
+                    icons::COMPASS,
+                    "探索",
+                    || None,
+                    || store::set_route(Route::Discover),
+                ))
+                .child(sidebar_nav_item(
+                    move || store::active_route() == Route::Installed,
+                    icons::PACKAGE,
+                    "已安装",
+                    || Some(store::installed_count()),
+                    || store::set_route(Route::Installed),
+                ))
+                .child(sidebar_nav_item(
+                    move || store::active_route() == Route::Updates,
+                    icons::ARROW_UP_CIRCLE,
+                    "更新中心",
+                    || Some(store::updates_count()),
+                    || store::set_route(Route::Updates),
+                ))
+                .child(sidebar_nav_item(
+                    move || store::active_route() == Route::Buckets,
+                    icons::DATABASE,
+                    "仓库源",
+                    || Some(store::bucket_count()),
+                    || store::set_route(Route::Buckets),
+                ))
+                .child(sidebar_nav_item(
+                    move || store::active_route() == Route::Config,
+                    icons::SETTINGS,
+                    "选项配置",
+                    || None,
+                    || store::set_route(Route::Config),
+                )),
+        )
+        .child(
+            // Sidebar footer: Terminal status toggle
+            base_button()
+                .on_press(store::toggle_terminal)
+                .accessibility_label("切换任务执行终端")
+                .w_full()
+                .h(px(34.0))
+                .px(px(10.0))
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .rounded(radius)
+                .border_1()
+                .border_color(move || theme().border)
+                .bg(move || {
+                    if store::terminal_open() {
+                        theme().accent
+                    } else {
+                        theme().card
+                    }
+                })
+                .hover(|s| s.bg(move || theme().accent))
+                .active(|s| s.scale(0.98))
+                .transition_transform()
+                .duration(MOTION_FAST_MS)
+                .focus_visible(focus_ring)
                 .child(
-                    // Left persistent sidebar (220px)
                     view()
-                        .w(px(220.0))
-                        .h_full()
-                        .bg(move || theme().card)
-                        .border_r_1()
-                        .border_color(move || theme().border)
-                        .p_4()
+                        .flex_row()
+                        .items_center()
                         .gap_2()
+                        .child(icons::svg_icon(icons::TERMINAL, 14.0, move || {
+                            if store::terminal_open() {
+                                theme().accent_foreground
+                            } else {
+                                theme().muted_foreground
+                            }
+                        }))
                         .child(
-                            // Brand Header with Vector Sundae Logo
-                            view()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .pb_4()
-                                .border_b_1()
-                                .border_color(move || theme().border.opacity(0.5))
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap_2p5()
-                                        .child(sundae_logo(30.0))
-                                        .child(
-                                            view()
-                                                .child(text("Sundae").text_base().font_weight(FontWeight::BOLD))
-                                                .child(text("Scoop GUI").text_xs().text_color(move || theme().muted_foreground)),
-                                        ),
-                                )
-                                .child(
-                                    // Refresh button
-                                    button()
-                                        .p_1p5()
-                                        .rounded(move || theme().radius)
-                                        .hover(|s| s.bg(move || theme().muted))
-                                        .on_press({
-                                            let s = state.clone();
-                                            move || s.refresh_all()
-                                        })
-                                        .child(refresh_icon(14.0)),
-                                ),
-                        )
-                        .child(
-                            // Navigation list
-                            view()
-                                .flex_1()
-                                .pt_2()
-                                .gap_1()
-                                .child(nav_item(
-                                    "探索",
-                                    search_icon_light(16.0),
-                                    Route::Discover,
-                                    active_route,
-                                    || None,
-                                ))
-                                .child(nav_item(
-                                    "已安装",
-                                    package_icon(16.0),
-                                    Route::Installed,
-                                    active_route,
-                                    {
-                                        let s = state.installed_apps;
-                                        move || Some(format!("{}", s.with(|a| a.len())))
-                                    },
-                                ))
-                                .child(nav_item(
-                                    "更新中心",
-                                    refresh_icon(16.0),
-                                    Route::Updates,
-                                    active_route,
-                                    {
-                                        let s = state.updates_list;
-                                        move || Some(format!("{}", s.with(|u| u.len())))
-                                    },
-                                ))
-                                .child(nav_item(
-                                    "仓库源",
-                                    bucket_icon(16.0),
-                                    Route::Buckets,
-                                    active_route,
-                                    {
-                                        let s = state.search_index;
-                                        move || Some(format!("{}", s.with(|i| i.buckets().len())))
-                                    },
-                                ))
-                                .child(nav_item(
-                                    "选项配置",
-                                    settings_icon(16.0),
-                                    Route::Config,
-                                    active_route,
-                                    || None,
-                                )),
-                        )
-                        .child(
-                            // Bottom drawer toggle
-                            button()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .p_2p5()
-                                .rounded(move || theme().radius)
-                                .bg(move || theme().muted.opacity(0.4))
-                                .hover(|s| s.bg(move || theme().muted.opacity(0.8)))
-                                .on_press({
-                                    let drawer_sig = state.terminal_drawer_open;
-                                    move || drawer_sig.update(|open| *open = !*open)
-                                })
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap_2()
-                                        .child(terminal_icon(15.0))
-                                        .child(text("终端任务").text_xs().font_weight(FontWeight::MEDIUM)),
-                                )
-                                .child(
-                                    view()
-                                        .w(px(8.0))
-                                        .h(px(8.0))
-                                        .rounded(px(999.0))
-                                        .bg({
-                                            let is_running = state.is_task_running;
-                                            move || {
-                                                if is_running.get() {
-                                                    status_color::warning()
-                                                } else {
-                                                    status_color::success()
-                                                }
-                                            }
-                                        }),
-                                ),
+                            text(move || {
+                                let pending = store::pending_task_count();
+                                if store::is_task_running() {
+                                    if pending > 1 {
+                                        format!("执行中 ({pending})")
+                                    } else {
+                                        "任务执行中".to_owned()
+                                    }
+                                } else {
+                                    "任务终端".to_owned()
+                                }
+                            })
+                            .text_xs()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(move || {
+                                if store::terminal_open() {
+                                    theme().accent_foreground
+                                } else {
+                                    theme().foreground
+                                }
+                            }),
                         ),
                 )
                 .child(
-                    // Right Content Area
                     view()
-                        .flex_1()
-                        .h_full()
-                        .child(dynamic({
-                            let s_route = state.clone();
-                            move || {
-                                if missing_sig.get() {
-                                    missing_scoop_view(s_route.clone()).into_element()
-                                } else {
-                                    match active_route.get() {
-                                        Route::Discover => crate::views::discover_view(s_route.clone()).into_element(),
-                                        Route::Installed => crate::views::installed_view(s_route.clone()).into_element(),
-                                        Route::Updates => crate::views::updates_view(s_route.clone()).into_element(),
-                                        Route::Buckets => crate::views::buckets_view(s_route.clone()).into_element(),
-                                        Route::Config => crate::views::config_view(s_route.clone()).into_element(),
-                                    }
-                                }
+                        .size_2()
+                        .rounded_full()
+                        .bg(move || {
+                            if store::is_task_running() {
+                                ValueTone::Warn.color()
+                            } else {
+                                ValueTone::Ok.color()
                             }
-                        })),
+                        }),
                 ),
         )
-        .child(dynamic({
-            let s = state.clone();
-            let drawer_open = state.terminal_drawer_open;
-            move || {
-                if drawer_open.get() {
-                    crate::views::terminal_drawer(s.clone()).into_element()
-                } else {
-                    view().into_element()
-                }
-            }
-        }))
 }
 
-fn nav_item(
-    label: &'static str,
-    icon: impl IntoElement,
-    route: Route,
-    active_route: Signal<Route>,
-    count_badge: impl Fn() -> Option<String> + 'static,
-) -> impl IntoElement {
-    button()
-        .flex_row()
-        .items_center()
-        .justify_between()
-        .px_2p5()
-        .py_2()
-        .rounded(move || theme().radius)
-        .bg(move || {
-            if active_route.get() == route {
-                theme().primary.opacity(0.14)
-            } else {
-                theme().primary.opacity(0.0)
-            }
-        })
-        .hover(move |s| {
-            if active_route.get() != route {
-                s.bg(theme().muted.opacity(0.45))
-            } else {
-                s
-            }
-        })
-        .on_press(move || active_route.set(route))
+fn workspace() -> impl IntoElement {
+    let show_missing = move || store::is_missing_scoop() && store::active_route() != Route::Config;
+
+    view()
+        .flex_1()
+        .min_w(px(0.0))
+        .h_full()
         .child(
             view()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(
-                    view()
-                        .w(px(3.0))
-                        .h(px(14.0))
-                        .rounded(px(999.0))
-                        .bg(move || {
-                            if active_route.get() == route {
-                                theme().primary
-                            } else {
-                                theme().primary.opacity(0.0)
-                            }
-                        }),
-                )
-                .child(icon)
-                .child(
-                    text(label)
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(move || {
-                            if active_route.get() == route {
-                                theme().primary
-                            } else {
-                                theme().foreground
-                            }
-                        }),
-                ),
+                .flex_1()
+                .min_h(px(0.0))
+                .child(when(show_missing, missing_scoop_view))
+                .child(when(
+                    move || !show_missing() && store::active_route() == Route::Discover,
+                    views::discover_view,
+                ))
+                .child(when(
+                    move || !show_missing() && store::active_route() == Route::Installed,
+                    views::installed_view,
+                ))
+                .child(when(
+                    move || !show_missing() && store::active_route() == Route::Updates,
+                    views::updates_view,
+                ))
+                .child(when(
+                    move || !show_missing() && store::active_route() == Route::Buckets,
+                    views::buckets_view,
+                ))
+                .child(when(
+                    move || store::active_route() == Route::Config,
+                    views::config_view,
+                )),
         )
-        .child(dynamic(move || {
-            if let Some(count_str) = count_badge() {
-                if count_str != "0" {
-                    app_badge(count_str, BadgeVariant::Secondary).into_element()
-                } else {
-                    view().into_element()
-                }
-            } else {
-                view().into_element()
-            }
-        }))
+        .child(when(store::terminal_open, terminal_drawer))
 }
 
-fn missing_scoop_view(state: AppState) -> impl IntoElement {
+fn missing_scoop_view() -> impl IntoElement {
     view()
         .flex_1()
         .items_center()
         .justify_center()
         .p_8()
         .child(
-            app_card()
+            card()
                 .max_w(px(520.0))
-                .items_center()
+                .p_6()
                 .gap_4()
+                .items_center()
                 .child(
                     view()
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        .child(alert_circle_icon(22.0))
-                        .child(text("未检测到 Scoop 环境").text_lg().font_weight(FontWeight::BOLD)),
+                        .child(icons::svg_icon(icons::ALERT_TRIANGLE, 20.0, move || {
+                            ValueTone::Warn.color()
+                        }))
+                        .child(
+                            text("未检测到本地 Scoop 环境")
+                                .text_base()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(move || theme().foreground),
+                        ),
                 )
                 .child(
-                    text("Sundae 需要依赖本地已安装的 Scoop 包管理器。未在 %USERPROFILE%\\scoop 找到相关目录。")
-                        .text_sm()
-                        .text_color(move || theme().muted_foreground),
+                    text(move || {
+                        format!(
+                            "Sundae 需要依赖本地已安装的 Scoop 包管理器。未在 {} 找到 apps 或 buckets 目录。",
+                            store::scoop_root_display()
+                        )
+                    })
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground),
                 )
                 .child(
                     view()
                         .w_full()
-                        .p_3()
+                        .px_3()
+                        .py_2()
+                        .rounded(radius)
+                        .border_1()
+                        .border_color(move || theme().border)
                         .bg(move || theme().muted)
-                        .rounded(move || theme().radius)
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
                         .child(
-                            text("irm get.scoop.neil.im | iex")
+                            text("irm get.scoop.sh | iex")
                                 .text_xs()
-                                .font_weight(FontWeight::MEDIUM),
-                        ),
+                                .font_family(crate::ui::mono_font)
+                                .text_color(move || theme().foreground),
+                        )
+                        .child(crate::ui::action_sm(ButtonKind::Secondary, "复制安装命令", || {
+                            set_clipboard("irm get.scoop.sh | iex");
+                            store::notices().notify_ok("已复制 Scoop 安装命令");
+                        })),
                 )
-                .child(
-                    app_button("重新检测环境", ButtonVariant::Primary, ButtonSize::Md, move || {
-                        state.refresh_all();
-                    }),
-                ),
+                .child(action(
+                    ButtonKind::Primary,
+                    "重新检测环境",
+                    store::refresh_all,
+                )),
         )
 }

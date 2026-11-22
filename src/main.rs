@@ -1,6 +1,6 @@
-//! Runs the Rust application directly on the machine's native backend.
+//! Runs Sundae directly on the machine's native desktop backend.
 
-// #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 #[cfg(target_os = "linux")]
 use nsh_platform_linux as platform;
@@ -17,8 +17,9 @@ fn main() -> impl std::process::Termination {
         platform::AppOptions {
             title: "Sundae".to_owned(),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            app_id: "com.example.sundae".to_owned(),
-            size: (480, 640),
+            app_id: "com.xcmm.sundae".to_owned(),
+            single_instance: true,
+            size: (1080, 720),
             ..Default::default()
         },
     )
