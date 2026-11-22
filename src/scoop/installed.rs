@@ -3,7 +3,6 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppInstallStatus {
@@ -245,39 +244,11 @@ impl InstalledManager {
 }
 
 /// Opens a local directory in the system file manager.
-/// Uses OS commands instead of `nsh_core::open_url` (which rejects Windows drive-letter paths in NSH 0.6.1).
 pub fn open_directory(path: &Path) -> std::io::Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("explorer").arg(path).spawn().map(|_| ())
-    }
-    #[cfg(target_os = "macos")]
-    {
-        Command::new("open").arg(path).spawn().map(|_| ())
-    }
-    #[cfg(target_os = "linux")]
-    {
-        Command::new("xdg-open").arg(path).spawn().map(|_| ())
-    }
+    bento::shell::open_directory(path)
 }
 
 /// Opens a local file (e.g. `manifest.json`) in the default editor/viewer.
 pub fn open_local_file(path: &Path) -> std::io::Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        Command::new("cmd")
-            .args(["/c", "start", "", &path.to_string_lossy()])
-            .creation_flags(0x0800_0000)
-            .spawn()
-            .map(|_| ())
-    }
-    #[cfg(target_os = "macos")]
-    {
-        Command::new("open").arg(path).spawn().map(|_| ())
-    }
-    #[cfg(target_os = "linux")]
-    {
-        Command::new("xdg-open").arg(path).spawn().map(|_| ())
-    }
+    bento::shell::open_local_file(path)
 }

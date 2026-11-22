@@ -2,33 +2,28 @@
 //!
 //! All signals are strictly private to this module (zero `pub Signal` exposure).
 //! Views and dialogs read state via tracked functions and request mutations via
-//! semantic actions. Local Scoop scanning always runs off the UI thread via
-//! `blocking` + Rayon so cold start and refreshes never stutter.
+//! semantic actions in [`actions`].
+
+mod actions;
+
+pub use actions::{
+    cancel_current_task, check_for_updates, enqueue_op, refresh_all, save_scoop_config,
+    start_task_poller, toggle_hold,
+};
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use bento::shell::{CloseBehavior, NoticeCenter, ThemeMode};
-use bento::updater::{check_latest_release, AppMeta, UpdateStatus};
+use bento::updater::UpdateStatus;
 use nsh_core::prelude::*;
 
 use crate::scoop::config::{ScoopConfig, SundaePrefs};
 use crate::scoop::env::ScoopEnv;
-use crate::scoop::installed::{InstalledApp, InstalledManager};
+use crate::scoop::installed::InstalledApp;
 use crate::scoop::manifest::PackageManifest;
-use crate::scoop::process::{LogLine, ScoopOp, TaskQueue, TaskStatus};
-use crate::scoop::scanner::{BucketScanner, SearchIndex};
+use crate::scoop::process::{LogLine, TaskQueue};
+use crate::scoop::scanner::SearchIndex;
 use crate::scoop::updates::{AppUpdate, UpdatesManager};
-use crate::ui::icons;
-
-pub const APP_META: AppMeta = AppMeta {
-    name: "Sundae",
-    version: crate::APP_VERSION,
-    tagline: "轻快、原生的 Scoop 桌面软件包管理器",
-    github_repo: "Summe-rsnow/Sundae",
-    license: "Apache-2.0",
-    brand_mark: icons::sundae_logo,
-};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Route {
@@ -215,6 +210,8 @@ fn queue_sig() -> Signal<QueueHandle> {
     global::<QueueHandle>()
 }
 
+// --- Internal helpers shared with `actions` ---
+
 fn ensure_queue() -> Arc<TaskQueue> {
     let existing = queue_sig().with_untracked(|h| h.0.clone());
     if let Some(q) = existing {
@@ -225,42 +222,108 @@ fn ensure_queue() -> Arc<TaskQueue> {
     q
 }
 
-fn parse_theme_mode(raw: &str) -> ThemeMode {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "light" => ThemeMode::Light,
-        "dark" => ThemeMode::Dark,
-        _ => ThemeMode::System,
+fn current_queue() -> Option<Arc<TaskQueue>> {
+    queue_sig().with_untracked(|h| h.0.clone())
+}
+
+fn set_task_state(running: bool, label: Option<String>, pending: usize) {
+    batch(|| {
+        task_running_sig().set(TaskRunningState(running));
+        running_label_sig().set(RunningTaskLabel(label));
+        pending_count_sig().set(PendingCountState(pending));
+    });
+}
+
+fn set_pending_count(pending: usize) {
+    pending_count_sig().set(PendingCountState(pending));
+}
+
+fn append_logs(new_logs: Vec<LogLine>) {
+    if new_logs.is_empty() {
+        return;
+    }
+    logs_sig().update(|state| {
+        if state.0.len() + new_logs.len() > 2500 {
+            let drop_count = (state.0.len() + new_logs.len()).saturating_sub(2000);
+            let drain_to = drop_count.min(state.0.len());
+            state.0.drain(0..drain_to);
+        }
+        state.0.extend(new_logs);
+    });
+    if !terminal_open_sig().get_untracked().0 {
+        terminal_open_sig().set(TerminalOpenState(true));
     }
 }
 
-fn theme_mode_key(mode: ThemeMode) -> &'static str {
-    match mode {
-        ThemeMode::System => "system",
-        ThemeMode::Light => "light",
-        ThemeMode::Dark => "dark",
-    }
+fn set_env_missing(env: ScoopEnv) {
+    env_sig().set(EnvState(env));
+    batch(|| {
+        missing_scoop_sig().set(MissingScoopState(true));
+        indexing_sig().set(IndexingState(false));
+    });
 }
 
-fn parse_close_behavior(raw: &str) -> CloseBehavior {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "tray" => CloseBehavior::Tray,
-        "exit" | "quit" => CloseBehavior::Exit,
-        _ => CloseBehavior::Ask,
-    }
+fn begin_scan(env: ScoopEnv) -> u64 {
+    env_sig().set(EnvState(env));
+    let next_seq = scan_seq_sig().get_untracked().0.wrapping_add(1);
+    batch(|| {
+        missing_scoop_sig().set(MissingScoopState(false));
+        scan_seq_sig().set(ScanSeq(next_seq));
+        indexing_sig().set(IndexingState(true));
+    });
+    next_seq
 }
 
-fn close_behavior_key(behavior: CloseBehavior) -> &'static str {
-    match behavior {
-        CloseBehavior::Ask => "ask",
-        CloseBehavior::Tray => "tray",
-        CloseBehavior::Exit => "exit",
-    }
+fn is_scan_seq_current(seq: u64) -> bool {
+    scan_seq_sig().get_untracked().0 == seq
+}
+
+fn commit_scan(index: SearchIndex, installed: Vec<InstalledApp>, updates: Vec<AppUpdate>) {
+    batch(|| {
+        index_sig().set(IndexState(index));
+        installed_sig().set(InstalledState(installed));
+        updates_sig().set(UpdatesState(updates));
+        indexing_sig().set(IndexingState(false));
+    });
+}
+
+fn finish_scan_with_error(err: impl std::fmt::Display) {
+    indexing_sig().set(IndexingState(false));
+    notices().notify_bad(format!("后台扫描 Scoop 索引失败：{err}"));
+}
+
+fn set_scoop_config(cfg: ScoopConfig) {
+    scoop_config_sig().set(ScoopConfigState(cfg));
+}
+
+fn configured_proxy_for_updater() -> Option<String> {
+    scoop_config_sig()
+        .get_untracked()
+        .0
+        .proxy
+        .filter(|p| {
+            let trimmed = p.trim();
+            !trimmed.is_empty()
+                && !trimmed.eq_ignore_ascii_case("none")
+                && !trimmed.eq_ignore_ascii_case("default")
+        })
+}
+
+fn is_update_checking() -> bool {
+    matches!(
+        update_status_sig().get_untracked().0,
+        UpdateStatus::Checking
+    )
+}
+
+fn set_update_status(status: UpdateStatus) {
+    update_status_sig().set(UpdateCheckState(status));
 }
 
 fn persist_prefs() {
     let prefs = SundaePrefs {
-        theme_mode: theme_mode_key(theme_mode_sig().get_untracked().0).to_owned(),
-        close_behavior: close_behavior_key(close_behavior_sig().get_untracked().0).to_owned(),
+        theme_mode: theme_mode_sig().get_untracked().0.as_key().to_owned(),
+        close_behavior: close_behavior_sig().get_untracked().0.as_key().to_owned(),
     };
     if let Err(err) = prefs.save() {
         log::warn!("Failed to persist Sundae prefs: {err}");
@@ -272,8 +335,8 @@ pub fn load() {
     let env = ScoopEnv::detect();
     let cfg = ScoopConfig::load();
     let prefs = SundaePrefs::load();
-    let theme_mode = parse_theme_mode(&prefs.theme_mode);
-    let close_behavior = parse_close_behavior(&prefs.close_behavior);
+    let theme_mode = ThemeMode::from_key(&prefs.theme_mode);
+    let close_behavior = CloseBehavior::from_key(&prefs.close_behavior);
     let is_missing = !env.is_installed();
 
     batch(|| {
@@ -301,125 +364,6 @@ pub fn seed_for_test(index: SearchIndex, installed: Vec<InstalledApp>, config: S
         installed_sig().set(InstalledState(installed));
         updates_sig().set(UpdatesState(updates));
         scoop_config_sig().set(ScoopConfigState(config));
-    });
-}
-
-/// Starts the lightweight 100ms task queue poller for the current shell owner.
-pub fn start_task_poller() {
-    let queue = ensure_queue();
-    let status_rx = queue.subscribe_status();
-    let log_rx = queue.subscribe_logs();
-
-    set_interval(Duration::from_millis(100), move || {
-        let mut needs_refresh = false;
-        while let Ok(status) = status_rx.try_recv() {
-            match status {
-                TaskStatus::Running(op) => {
-                    batch(|| {
-                        task_running_sig().set(TaskRunningState(true));
-                        running_label_sig().set(RunningTaskLabel(Some(op.display_name())));
-                        pending_count_sig().set(PendingCountState(queue.pending_count()));
-                    });
-                }
-                TaskStatus::Success(op) => {
-                    batch(|| {
-                        task_running_sig().set(TaskRunningState(false));
-                        running_label_sig().set(RunningTaskLabel(None));
-                        pending_count_sig().set(PendingCountState(queue.pending_count()));
-                    });
-                    notices().notify_ok(format!("已完成：{}", op.display_name()));
-                    needs_refresh = true;
-                }
-                TaskStatus::Failed { op, error } => {
-                    batch(|| {
-                        task_running_sig().set(TaskRunningState(false));
-                        running_label_sig().set(RunningTaskLabel(None));
-                        pending_count_sig().set(PendingCountState(queue.pending_count()));
-                    });
-                    notices().notify_bad(format!("{}失败：{}", op.display_name(), error));
-                }
-                TaskStatus::Idle => {
-                    batch(|| {
-                        task_running_sig().set(TaskRunningState(false));
-                        running_label_sig().set(RunningTaskLabel(None));
-                        pending_count_sig().set(PendingCountState(0));
-                    });
-                }
-            }
-        }
-
-        let mut new_logs = Vec::new();
-        while let Ok(line) = log_rx.try_recv() {
-            new_logs.push(line);
-        }
-        if !new_logs.is_empty() {
-            logs_sig().update(|state| {
-                if state.0.len() + new_logs.len() > 2500 {
-                    let drop_count = (state.0.len() + new_logs.len()).saturating_sub(2000);
-                    let drain_to = drop_count.min(state.0.len());
-                    state.0.drain(0..drain_to);
-                }
-                state.0.extend(new_logs);
-            });
-            if !terminal_open_sig().get_untracked().0 {
-                terminal_open_sig().set(TerminalOpenState(true));
-            }
-        }
-
-        if needs_refresh {
-            refresh_all();
-        }
-    });
-}
-
-/// Scans Scoop buckets, installed apps, and pending updates on a background thread
-/// using Rayon, then commits the snapshot atomically to UI signals.
-pub fn refresh_all() {
-    let env = ScoopEnv::detect();
-    env_sig().set(EnvState(env.clone()));
-
-    if !env.is_installed() {
-        batch(|| {
-            missing_scoop_sig().set(MissingScoopState(true));
-            indexing_sig().set(IndexingState(false));
-        });
-        return;
-    }
-
-    let next_seq = scan_seq_sig().get_untracked().0.wrapping_add(1);
-    batch(|| {
-        missing_scoop_sig().set(MissingScoopState(false));
-        scan_seq_sig().set(ScanSeq(next_seq));
-        indexing_sig().set(IndexingState(true));
-    });
-
-    spawn(async move {
-        let scanned = blocking(move || {
-            let index = BucketScanner::scan_buckets(&env);
-            let installed = InstalledManager::scan_installed(&env);
-            let updates = UpdatesManager::check_updates(&installed, &index);
-            (index, installed, updates)
-        })
-        .await;
-
-        if scan_seq_sig().get_untracked().0 != next_seq {
-            return;
-        }
-
-        match scanned {
-            Ok((index, installed, updates)) => {
-                batch(|| {
-                    index_sig().set(IndexState(index));
-                    installed_sig().set(InstalledState(installed));
-                    updates_sig().set(UpdatesState(updates));
-                    indexing_sig().set(IndexingState(false));
-                });
-            }
-            Err(err) => {
-                indexing_sig().set(IndexingState(false));
-                notices().notify_bad(format!("后台扫描 Scoop 索引失败：{err}"));
-            }
-        }
     });
 }
 
@@ -544,32 +488,6 @@ pub fn pending_task_count() -> usize {
     pending_count_sig().get().0
 }
 
-pub fn enqueue_op(op: ScoopOp) {
-    let queue = ensure_queue();
-    terminal_open_sig().set(TerminalOpenState(true));
-    queue.enqueue(op);
-    pending_count_sig().set(PendingCountState(queue.pending_count()));
-}
-
-pub fn cancel_current_task() {
-    if let Some(queue) = queue_sig().with_untracked(|h| h.0.clone()) {
-        queue.cancel_current();
-        notices().notify_warn("已请求终止当前任务");
-    }
-}
-
-pub fn toggle_hold(app: &InstalledApp) {
-    let next_hold = !app.is_held();
-    let _ = InstalledManager::set_hold_flag(&app.path, next_hold);
-    let op = if next_hold {
-        ScoopOp::Hold(app.name.clone())
-    } else {
-        ScoopOp::Unhold(app.name.clone())
-    };
-    enqueue_op(op);
-    refresh_all();
-}
-
 pub fn terminal_open() -> bool {
     terminal_open_sig().get().0
 }
@@ -605,18 +523,6 @@ pub fn scoop_config() -> ScoopConfig {
     scoop_config_sig().get().0
 }
 
-pub fn save_scoop_config(cfg: ScoopConfig) {
-    match cfg.save() {
-        Ok(()) => {
-            scoop_config_sig().set(ScoopConfigState(cfg));
-            notices().notify_ok("Scoop 配置已保存并生效");
-        }
-        Err(err) => {
-            notices().notify_bad(format!("保存配置失败：{err}"));
-        }
-    }
-}
-
 pub fn theme_mode() -> ThemeMode {
     theme_mode_sig().get().0
 }
@@ -648,28 +554,6 @@ pub fn notices() -> NoticeCenter {
 
 pub fn update_status() -> UpdateStatus {
     update_status_sig().get().0
-}
-
-pub fn check_for_updates() {
-    if matches!(update_status_sig().get_untracked().0, UpdateStatus::Checking) {
-        return;
-    }
-    update_status_sig().set(UpdateCheckState(UpdateStatus::Checking));
-    let proxy = scoop_config_sig()
-        .get_untracked()
-        .0
-        .proxy
-        .filter(|p| {
-            let trimmed = p.trim();
-            !trimmed.is_empty()
-                && !trimmed.eq_ignore_ascii_case("none")
-                && !trimmed.eq_ignore_ascii_case("default")
-        });
-
-    spawn(async move {
-        let result = check_latest_release(APP_META, proxy).await;
-        update_status_sig().set(UpdateCheckState(UpdateStatus::from(result)));
-    });
 }
 
 // --- Modal Dialog States ---

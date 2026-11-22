@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="196 150 632 632" width="24" height="24">
+  <defs>
+    <clipPath id="bmUpperSwirlClip">
+      <path d="M 348 456 C 348 380, 420 334, 512 334 C 604 334, 676 380, 676 456 C 676 492, 608 514, 512 514 C 416 514, 348 492, 348 456 Z"/>
+    </clipPath>
+    <clipPath id="bmLeftCupClip">
+      <path d="M 244 494 C 238 474, 252 466, 280 474 C 376 502, 464 548, 532 652 C 524 682, 517 704, 512 720 L 388 720 C 356 720, 332 700, 318 666 C 284 592, 258 536, 244 494 Z"/>
+    </clipPath>
+    <clipPath id="bmCherryClip">
+      <circle cx="512" cy="260" r="56"/>
+    </clipPath>
+
+    <!-- High-contrast saturated gradients readable on both light and dark title bars -->
+    <linearGradient id="bmUpperSwirlGrad" x1="470" y1="334" x2="554" y2="496" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fecdd3"/>
+      <stop offset="46%" stop-color="#fda4af"/>
+      <stop offset="100%" stop-color="#fb7185"/>
+    </linearGradient>
+    <linearGradient id="bmSwirlCreaseAO" x1="512" y1="400" x2="512" y2="466" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9f1239" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#9f1239" stop-opacity="0.30"/>
+    </linearGradient>
+
+    <linearGradient id="bmFrontSwirlGrad" x1="496" y1="398" x2="536" y2="544" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fda4af"/>
+      <stop offset="42%" stop-color="#fb7185"/>
+      <stop offset="100%" stop-color="#e11d48"/>
+    </linearGradient>
+
+    <linearGradient id="bmCupPocketGrad" x1="512" y1="482" x2="512" y2="696" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#701a4e"/>
+      <stop offset="100%" stop-color="#4c1d3d"/>
+    </linearGradient>
+
+    <linearGradient id="bmLeftCupGrad" x1="244" y1="468" x2="520" y2="718" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fcd34d"/>
+      <stop offset="44%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="bmCupCreaseAO" x1="504" y1="650" x2="394" y2="616" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3b0f26" stop-opacity="0.42"/>
+      <stop offset="45%" stop-color="#3b0f26" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#3b0f26" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="bmRightCupGrad" x1="780" y1="468" x2="496" y2="718" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="38%" stop-color="#fbbf24"/>
+      <stop offset="76%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+
+    <radialGradient id="bmCherryGrad" cx="492" cy="238" r="80" fx="488" fy="234" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffe4e6"/>
+      <stop offset="28%" stop-color="#fb7185"/>
+      <stop offset="68%" stop-color="#f43f5e"/>
+      <stop offset="100%" stop-color="#be123c"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Upper creamy-strawberry swirl dome -->
+  <path d="M 348 456 C 348 380, 420 334, 512 334 C 604 334, 676 380, 676 456 C 676 492, 608 514, 512 514 C 416 514, 348 492, 348 456 Z"
+        fill="url(#bmUpperSwirlGrad)"/>
+  <g clip-path="url(#bmUpperSwirlClip)">
+    <rect x="348" y="400" width="328" height="72" fill="url(#bmSwirlCreaseAO)"/>
+  </g>
+
+  <!-- Front strawberry swirl cushion -->
+  <path d="M 274 476 C 272 426, 322 396, 384 406 C 448 416, 512 434, 584 416 C 648 400, 748 412, 750 476 C 750 518, 660 544, 512 544 C 364 544, 276 518, 274 476 Z"
+        fill="url(#bmFrontSwirlGrad)"/>
+
+  <!-- Inner berry-plum cup pocket -->
+  <path d="M 272 486 C 358 512, 438 524, 512 524 C 586 524, 666 512, 752 486 C 722 574, 686 642, 650 670 L 512 696 L 374 670 C 338 642, 302 574, 272 486 Z"
+        fill="url(#bmCupPocketGrad)"/>
+
+  <!-- Left cup fold + crease AO -->
+  <path d="M 244 494 C 238 474, 252 466, 280 474 C 376 502, 464 548, 532 652 C 524 682, 517 704, 512 720 L 388 720 C 356 720, 332 700, 318 666 C 284 592, 258 536, 244 494 Z"
+        fill="url(#bmLeftCupGrad)"/>
+  <g clip-path="url(#bmLeftCupClip)">
+    <path d="M 484 550 L 542 724 L 360 724 L 360 550 Z" fill="url(#bmCupCreaseAO)"/>
+  </g>
+
+  <!-- Right overlapping cup fold -->
+  <path d="M 780 494 C 766 536, 740 592, 706 666 C 692 700, 668 720, 636 720 L 512 720 C 494 676, 486 632, 490 584 C 556 522, 656 498, 744 474 C 772 466, 786 474, 780 494 Z"
+        fill="url(#bmRightCupGrad)"/>
+
+  <!-- Floating cherry jewel -->
+  <circle cx="512" cy="260" r="56" fill="url(#bmCherryGrad)"/>
+  <g clip-path="url(#bmCherryClip)">
+    <ellipse cx="492" cy="238" rx="17" ry="9" transform="rotate(-32 492 238)" fill="#ffffff" fill-opacity="0.65"/>
+  </g>
+</svg>

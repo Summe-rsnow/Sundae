@@ -11,11 +11,7 @@ publish = false
 [dependencies]
 nsh-core = { version = "0.6.1", features = ["svg"] }
 nsh-base = { version = "0.6.1", default-features = false }
-bento = { path = "../Bento" }
-# Future remote git + local patch workflow once Bento is published:
-# bento = { git = "https://github.com/Summe-rsnow/Bento.git", tag = "v0.1.0" }
-# [patch."https://github.com/Summe-rsnow/Bento.git"]
-# bento = { path = "../Bento" }
+bento = { git = "https://github.com/Summe-rsnow/Bento.git", tag = "v1.0.0" }
 ureq = { version = "3.5", default-features = false, features = ["rustls", "socks-proxy"] }
 rayon = "1.10"
 serde = { version = "1.0", features = ["derive"] }
@@ -37,3 +33,6 @@ nsh-platform-windows = { version = "0.6.1", default-features = false, features =
 [dev-dependencies]
 nsh-engine = "0.6.1"
 nsh-testing = { version = "0.6.1", features = ["live"] }
+
+# [patch."https://github.com/Summe-rsnow/Bento.git"]
+# bento = { path = "../Bento" }

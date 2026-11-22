@@ -7,7 +7,7 @@
 
 use bento::shell::{
     bind_close_handler, close_behavior_submenu, confirm_close_dialog, theme_mode_segmented,
-    title_bar_shell,
+    title_bar_brand_clickable, title_bar_shell,
 };
 use nsh_base::{button as base_button, theme};
 use nsh_core::element::desktop::{current_window, quit, set_tray, tray, MenuItem};
@@ -53,11 +53,12 @@ pub fn screen() -> impl IntoElement {
         let show_win = win_tray.clone();
         let show_win_click = win_tray.clone();
         let updates_win = win_tray.clone();
+        let about_win = win_tray.clone();
 
         set_tray(
             tray()
                 .icon(icons::tray_icon_src())
-                .tooltip("Sundae — Scoop 包管理器")
+                .tooltip(format!("Sundae v{} — Scoop 包管理器", crate::APP_VERSION))
                 .on_click(move |_| {
                     show_win_click.show();
                     show_win_click.focus();
@@ -72,6 +73,11 @@ pub fn screen() -> impl IntoElement {
                         updates_win.focus();
                         store::set_route(Route::Updates);
                         store::refresh_all();
+                    }),
+                    MenuItem::new("关于与检查更新…").on_select(move || {
+                        about_win.show();
+                        about_win.focus();
+                        store::set_about_open(true);
                     }),
                     MenuItem::separator(),
                     close_behavior_submenu(behavior, store::set_close_behavior),
@@ -116,7 +122,7 @@ pub fn screen() -> impl IntoElement {
                 confirm_close_dialog(
                     close_confirm_open,
                     win.clone(),
-                    "Sundae",
+                    crate::APP_META.name,
                     store::set_close_behavior,
                 )
             },
@@ -124,42 +130,7 @@ pub fn screen() -> impl IntoElement {
 }
 
 fn title_bar() -> impl IntoElement {
-    let left = view()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .child(icons::sundae_logo(22.0))
-        .child(
-            text("Sundae")
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(move || theme().foreground),
-        )
-        .child(
-            view().window_drag(false).child(
-                base_button()
-                    .on_press(|| store::set_about_open(true))
-                    .accessibility_label("关于 Sundae")
-                    .px_2()
-                    .h(px(22.0))
-                    .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .bg(move || theme().muted)
-                    .hover(|s| s.bg(move || theme().accent))
-                    .active(|s| s.scale(0.96))
-                    .transition_transform()
-                    .duration(MOTION_FAST_MS)
-                    .focus_visible(focus_ring)
-                    .child(
-                        text(format!("v{}", crate::APP_VERSION))
-                            .text_xs()
-                            .tabular_nums()
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(move || theme().muted_foreground),
-                    ),
-            ),
-        );
+    let left = title_bar_brand_clickable(crate::APP_META, || store::set_about_open(true));
 
     let center = view()
         .flex_1()

@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Squircle app container clip -->
+    <clipPath id="tileClip">
+      <rect x="64" y="64" width="896" height="896" rx="212"/>
+    </clipPath>
+
+    <!-- Shape clips so 5px top rim glints & crease AO stay razor-clean -->
+    <clipPath id="upperSwirlClip">
+      <path d="M 348 456 C 348 380, 420 334, 512 334 C 604 334, 676 380, 676 456 C 676 492, 608 514, 512 514 C 416 514, 348 492, 348 456 Z"/>
+    </clipPath>
+    <clipPath id="frontSwirlClip">
+      <path d="M 274 476 C 272 426, 322 396, 384 406 C 448 416, 512 434, 584 416 C 648 400, 748 412, 750 476 C 750 518, 660 544, 512 544 C 364 544, 276 518, 274 476 Z"/>
+    </clipPath>
+    <clipPath id="leftCupClip">
+      <path d="M 244 494 C 238 474, 252 466, 280 474 C 376 502, 464 548, 532 652 C 524 682, 517 704, 512 720 L 388 720 C 356 720, 332 700, 318 666 C 284 592, 258 536, 244 494 Z"/>
+    </clipPath>
+    <clipPath id="rightCupClip">
+      <path d="M 780 494 C 766 536, 740 592, 706 666 C 692 700, 668 720, 636 720 L 512 720 C 494 676, 486 632, 490 584 C 556 522, 656 498, 744 474 C 772 466, 786 474, 780 494 Z"/>
+    </clipPath>
+    <clipPath id="cherryClip">
+      <circle cx="512" cy="260" r="56"/>
+    </clipPath>
+
+    <!-- Deep obsidian canvas -->
+    <linearGradient id="tileBg" x1="128" y1="72" x2="896" y2="952" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#161f33"/>
+      <stop offset="52%" stop-color="#0e1320"/>
+      <stop offset="100%" stop-color="#090c14"/>
+    </linearGradient>
+
+    <radialGradient id="topAura" cx="512" cy="356" r="415" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fb7185" stop-opacity="0.34"/>
+      <stop offset="48%" stop-color="#f59e0b" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#0e1320" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="tileRim" x1="180" y1="64" x2="844" y2="960" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fda4af" stop-opacity="0.28"/>
+      <stop offset="50%" stop-color="#fb7185" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.06"/>
+    </linearGradient>
+
+    <!-- Warm rose-amber floor glow -->
+    <radialGradient id="levitateGlow" cx="512" cy="792" r="220" gradientUnits="userSpaceOnUse" gradientTransform="translate(0 712) scale(1 0.1)">
+      <stop offset="0%" stop-color="#fb7185" stop-opacity="0.44"/>
+      <stop offset="55%" stop-color="#f59e0b" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Deep berry-plum inner cup pocket -->
+    <linearGradient id="cupPocketGrad" x1="512" y1="482" x2="512" y2="696" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#611e4a"/>
+      <stop offset="55%" stop-color="#4c1d3d"/>
+      <stop offset="100%" stop-color="#2d0d23"/>
+    </linearGradient>
+    <radialGradient id="cupPocketBounce" cx="512" cy="496" r="188" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fda4af" stop-opacity="0.28"/>
+      <stop offset="65%" stop-color="#fb7185" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#4c1d3d" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Layered creamy-strawberry ice-cream swirls -->
+    <linearGradient id="upperSwirlGrad" x1="470" y1="334" x2="554" y2="496" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fff1f2"/>
+      <stop offset="40%" stop-color="#fecdd3"/>
+      <stop offset="78%" stop-color="#fda4af"/>
+      <stop offset="100%" stop-color="#fb7185"/>
+    </linearGradient>
+    <linearGradient id="swirlCreaseAO" x1="512" y1="400" x2="512" y2="466" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#881337" stop-opacity="0"/>
+      <stop offset="58%" stop-color="#881337" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#881337" stop-opacity="0.32"/>
+    </linearGradient>
+
+    <linearGradient id="frontSwirlGrad" x1="496" y1="398" x2="536" y2="544" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffe4e6"/>
+      <stop offset="28%" stop-color="#fda4af"/>
+      <stop offset="68%" stop-color="#fb7185"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+    <linearGradient id="frontSwirlBottomAO" x1="512" y1="468" x2="512" y2="544" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4c1d3d" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#4c1d3d" stop-opacity="0.30"/>
+    </linearGradient>
+    <linearGradient id="swirlRimGrad" x1="282" y1="404" x2="742" y2="468" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.82"/>
+      <stop offset="55%" stop-color="#fff1f2" stop-opacity="0.44"/>
+      <stop offset="100%" stop-color="#fda4af" stop-opacity="0.12"/>
+    </linearGradient>
+
+    <!-- Left & Right sculpted amber-caramel / rose-gold cup folds -->
+    <linearGradient id="leftCupGrad" x1="244" y1="468" x2="520" y2="718" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fde68a"/>
+      <stop offset="36%" stop-color="#fbbf24"/>
+      <stop offset="72%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="cupCreaseAO" x1="504" y1="650" x2="394" y2="616" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2c0b1e" stop-opacity="0.44"/>
+      <stop offset="45%" stop-color="#2c0b1e" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#2c0b1e" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="rightCupGrad" x1="780" y1="468" x2="496" y2="718" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="30%" stop-color="#fcd34d"/>
+      <stop offset="68%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+
+    <!-- 5px inner top rim glints for cup folds -->
+    <linearGradient id="leftCupRimGrad" x1="250" y1="468" x2="520" y2="636" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fffbeb" stop-opacity="0.78"/>
+      <stop offset="68%" stop-color="#fde68a" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="rightCupRimGrad" x1="774" y1="468" x2="490" y2="594" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.82"/>
+      <stop offset="68%" stop-color="#fde68a" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#fb923c" stop-opacity="0.06"/>
+    </linearGradient>
+
+    <!-- Floating luminous cherry jewel halo & glossy orb -->
+    <radialGradient id="cherryHalo" cx="512" cy="260" r="158" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fda4af" stop-opacity="0.44"/>
+      <stop offset="50%" stop-color="#fb7185" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#fb7185" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cherryGrad" cx="492" cy="238" r="80" fx="488" fy="234" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fff1f2"/>
+      <stop offset="22%" stop-color="#fda4af"/>
+      <stop offset="58%" stop-color="#fb7185"/>
+      <stop offset="86%" stop-color="#f43f5e"/>
+      <stop offset="100%" stop-color="#be123c"/>
+    </radialGradient>
+    <linearGradient id="cherryRimGrad" x1="468" y1="210" x2="554" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.76"/>
+      <stop offset="100%" stop-color="#fff1f2" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle Container -->
+  <g clip-path="url(#tileClip)">
+    <rect x="64" y="64" width="896" height="896" rx="212" fill="url(#tileBg)"/>
+    <circle cx="512" cy="356" r="415" fill="url(#topAura)"/>
+  </g>
+  <rect x="65" y="65" width="894" height="894" rx="211" fill="none" stroke="url(#tileRim)" stroke-width="2.5"/>
+
+  <!-- Soft floor glow -->
+  <ellipse cx="512" cy="792" rx="204" ry="20" fill="url(#levitateGlow)"/>
+
+  <!-- Upper creamy-strawberry swirl dome -->
+  <path d="M 348 456 C 348 380, 420 334, 512 334 C 604 334, 676 380, 676 456 C 676 492, 608 514, 512 514 C 416 514, 348 492, 348 456 Z"
+        fill="url(#upperSwirlGrad)"/>
+  <g clip-path="url(#upperSwirlClip)">
+    <rect x="348" y="400" width="328" height="72" fill="url(#swirlCreaseAO)"/>
+    <path d="M 364 416 C 390 362, 446 334, 512 334 C 578 334, 634 362, 660 416"
+          fill="none" stroke="url(#swirlRimGrad)" stroke-width="5"/>
+  </g>
+
+  <!-- Front lush coral-strawberry swirl tier -->
+  <path d="M 274 476 C 272 426, 322 396, 384 406 C 448 416, 512 434, 584 416 C 648 400, 748 412, 750 476 C 750 518, 660 544, 512 544 C 364 544, 276 518, 274 476 Z"
+        fill="url(#frontSwirlGrad)"/>
+  <g clip-path="url(#frontSwirlClip)">
+    <rect x="272" y="468" width="480" height="76" fill="url(#frontSwirlBottomAO)"/>
+    <path d="M 282 458 C 290 420, 334 398, 384 406 C 448 416, 512 434, 584 416 C 648 400, 734 412, 746 456"
+          fill="none" stroke="url(#swirlRimGrad)" stroke-width="5"/>
+  </g>
+
+  <!-- Deep berry-plum inner cup pocket -->
+  <path d="M 272 486 C 358 512, 438 524, 512 524 C 586 524, 666 512, 752 486 C 722 574, 686 642, 650 670 L 512 696 L 374 670 C 338 642, 302 574, 272 486 Z"
+        fill="url(#cupPocketGrad)"/>
+  <path d="M 272 486 C 358 512, 438 524, 512 524 C 586 524, 666 512, 752 486 C 722 574, 686 642, 650 670 L 512 696 L 374 670 C 338 642, 302 574, 272 486 Z"
+        fill="url(#cupPocketBounce)"/>
+
+  <!-- Left sculpted cup fold + clipped crease AO + 5px inner rim glint -->
+  <path d="M 244 494 C 238 474, 252 466, 280 474 C 376 502, 464 548, 532 652 C 524 682, 517 704, 512 720 L 388 720 C 356 720, 332 700, 318 666 C 284 592, 258 536, 244 494 Z"
+        fill="url(#leftCupGrad)"/>
+  <g clip-path="url(#leftCupClip)">
+    <path d="M 484 550 L 542 724 L 360 724 L 360 550 Z" fill="url(#cupCreaseAO)"/>
+    <path d="M 250 472 C 261 469, 270 471, 280 474 C 376 502, 464 548, 532 652"
+          fill="none" stroke="url(#leftCupRimGrad)" stroke-width="5"/>
+  </g>
+
+  <!-- Right overlapping sculpted cup fold + 5px inner rim glint -->
+  <path d="M 780 494 C 766 536, 740 592, 706 666 C 692 700, 668 720, 636 720 L 512 720 C 494 676, 486 632, 490 584 C 556 522, 656 498, 744 474 C 772 466, 786 474, 780 494 Z"
+        fill="url(#rightCupGrad)"/>
+  <g clip-path="url(#rightCupClip)">
+    <path d="M 490 584 C 556 522, 656 498, 744 474 C 758 470, 769 470, 776 474"
+          fill="none" stroke="url(#rightCupRimGrad)" stroke-width="5"/>
+  </g>
+
+  <!-- Luminous floating cherry jewel -->
+  <circle cx="512" cy="260" r="158" fill="url(#cherryHalo)"/>
+  <circle cx="512" cy="260" r="56" fill="url(#cherryGrad)"/>
+  <g clip-path="url(#cherryClip)">
+    <ellipse cx="492" cy="238" rx="17" ry="9" transform="rotate(-32 492 238)" fill="#ffffff" fill-opacity="0.70"/>
+    <path d="M 466 236 A 56 56 0 0 1 552 222" fill="none" stroke="url(#cherryRimGrad)" stroke-width="5"/>
+  </g>
+</svg>

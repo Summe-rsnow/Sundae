@@ -11,15 +11,15 @@ use crate::scoop::manifest::PackageManifest;
 use crate::scoop::process::ScoopOp;
 use crate::store;
 use crate::ui::{
-    action, action_sm, checkbox, divider, external_link, icons, modal_dialog, radius, status_badge,
-    ButtonKind, ValueTone,
+    action, action_sm, checkbox, confirm_dialog, divider, external_link, meta_row, modal_dialog,
+    radius, status_badge, ButtonKind, ValueTone,
 };
 
 /// Shared Bento About & GitHub Releases update checker dialog.
 pub fn about_dialog_overlay() -> impl IntoElement {
     when(store::about_open, || {
         bento::updater::about_dialog(
-            store::APP_META,
+            crate::APP_META,
             store::update_status,
             store::check_for_updates,
             || store::set_about_open(false),
@@ -35,63 +35,39 @@ pub fn confirm_uninstall_overlay() -> impl IntoElement {
             let target = store::uninstall_target().unwrap_or_default();
             let purge = signal(false);
             let target_for_confirm = target.clone();
-            let cancel = || store::close_uninstall_confirm();
+            let extra = view()
+                .p_3()
+                .rounded(radius)
+                .border_1()
+                .border_color(move || theme().border)
+                .bg(move || theme().muted)
+                .child(checkbox(
+                    move || purge.get(),
+                    || false,
+                    "同时清除持久化数据 (--purge)",
+                    Some("同时清除持久化数据（追加 --purge 参数，不可恢复）"),
+                    move |next| purge.set(next),
+                ))
+                .into_element();
 
-            modal_dialog(
+            confirm_dialog(
                 420.0,
-                cancel,
-                view()
-                    .gap_4()
-                    .child(
-                        view()
-                            .flex_row()
-                            .items_center()
-                            .gap_2p5()
-                            .child(icons::svg_icon(icons::ALERT_TRIANGLE, 18.0, move || {
-                                theme().destructive
-                            }))
-                            .child(
-                                text(format!("确认卸载 {}", target))
-                                    .text_base()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(move || theme().foreground),
-                            ),
-                    )
-                    .child(
-                        text("卸载将移除应用本体与相关 Shim 快捷命令。若勾选下方选项，也会一并删除该应用的 persist 持久化配置数据。")
-                            .text_xs()
-                            .text_color(move || theme().muted_foreground),
-                    )
-                    .child(
-                        view()
-                            .p_3()
-                            .rounded(radius)
-                            .border_1()
-                            .border_color(move || theme().border)
-                            .bg(move || theme().muted)
-                            .child(checkbox(
-                                move || purge.get(),
-                                || false,
-                                "同时清除持久化数据 (--purge)",
-                                Some("同时清除持久化数据（追加 --purge 参数，不可恢复）"),
-                                move |next| purge.set(next),
-                            )),
-                    )
-                    .child(
-                        view()
-                            .flex_row()
-                            .justify_end()
-                            .gap_2()
-                            .child(action(ButtonKind::Secondary, "取消", cancel))
-                            .child(action(ButtonKind::Destructive, "确认卸载", move || {
-                                let with_purge = purge.get_untracked();
-                                store::close_uninstall_confirm();
-                                store::enqueue_op(ScoopOp::uninstall(
-                                    target_for_confirm.clone(),
-                                    with_purge,
-                                ));
-                            })),
-                    ),
+                true,
+                format!("确认卸载 {}", target),
+                "卸载将移除应用本体与相关 Shim 快捷命令。若勾选下方选项，也会一并删除该应用的 persist 持久化配置数据。",
+                Some(extra),
+                "取消",
+                "确认卸载",
+                ButtonKind::Destructive,
+                store::close_uninstall_confirm,
+                move || {
+                    let with_purge = purge.get_untracked();
+                    store::close_uninstall_confirm();
+                    store::enqueue_op(ScoopOp::uninstall(
+                        target_for_confirm.clone(),
+                        with_purge,
+                    ));
+                },
             )
         },
     )
@@ -104,44 +80,21 @@ pub fn confirm_remove_bucket_overlay() -> impl IntoElement {
         || {
             let bucket = store::remove_bucket_target().unwrap_or_default();
             let bucket_for_confirm = bucket.clone();
-            let cancel = || store::close_remove_bucket_confirm();
 
-            modal_dialog(
+            confirm_dialog(
                 400.0,
-                cancel,
-                view()
-                    .gap_4()
-                    .child(
-                        view()
-                            .flex_row()
-                            .items_center()
-                            .gap_2p5()
-                            .child(icons::svg_icon(icons::ALERT_TRIANGLE, 18.0, move || {
-                                theme().destructive
-                            }))
-                            .child(
-                                text(format!("确认移除仓库源 {}", bucket))
-                                    .text_base()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(move || theme().foreground),
-                            ),
-                    )
-                    .child(
-                        text("移除后将删除本地对应的 Bucket 仓库目录（已安装的应用本体不会被卸载，但后续将无法从该源检查更新）。")
-                            .text_xs()
-                            .text_color(move || theme().muted_foreground),
-                    )
-                    .child(
-                        view()
-                            .flex_row()
-                            .justify_end()
-                            .gap_2()
-                            .child(action(ButtonKind::Secondary, "取消", cancel))
-                            .child(action(ButtonKind::Destructive, "确认移除", move || {
-                                store::close_remove_bucket_confirm();
-                                store::enqueue_op(ScoopOp::BucketRm(bucket_for_confirm.clone()));
-                            })),
-                    ),
+                true,
+                format!("确认移除仓库源 {}", bucket),
+                "移除后将删除本地对应的 Bucket 仓库目录（已安装的应用本体不会被卸载，但后续将无法从该源检查更新）。",
+                None,
+                "取消",
+                "确认移除",
+                ButtonKind::Destructive,
+                store::close_remove_bucket_confirm,
+                move || {
+                    store::close_remove_bucket_confirm();
+                    store::enqueue_op(ScoopOp::BucketRm(bucket_for_confirm.clone()));
+                },
             )
         },
     )
@@ -370,19 +323,4 @@ fn package_detail_content(pkg: PackageManifest) -> impl IntoElement {
                     )),
             ),
     )
-}
-
-fn meta_row(label: &'static str, value: impl IntoElement) -> impl IntoElement {
-    view()
-        .flex_row()
-        .items_center()
-        .justify_between()
-        .gap_3()
-        .child(
-            text(label)
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(move || theme().muted_foreground),
-        )
-        .child(value)
 }

@@ -102,9 +102,11 @@ fn real_app_root_mounts_and_opens_about_and_config() -> Result<(), String> {
     .map_err(|e| e.to_string())?;
 
     app.wait_for("Sundae")?;
+    assert!(app.screen().shows("v1.0.0"));
     app.press("label:关于 Sundae")?;
     app.wait_for("版本更新")?;
     app.wait_for("Summe-rsnow/Sundae")?;
+    assert!(app.screen().shows("v1.0.0"));
     app.press("关闭")?;
     app.wait_for_gone("版本更新", Duration::from_secs(2))?;
 
