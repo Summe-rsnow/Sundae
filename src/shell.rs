@@ -6,8 +6,8 @@
 //! - System tray, close-button interception (`CloseBehavior`), keyboard shortcuts, floating toasts
 
 use bento::shell::{
-    bind_close_handler, close_behavior_submenu, confirm_close_dialog, theme_mode_segmented,
-    title_bar_brand_clickable, title_bar_shell,
+    bind_close_handler, close_behavior_submenu, confirm_close_dialog, remember_window_placement,
+    title_bar_brand_clickable, title_bar_right_with_theme, title_bar_shell,
 };
 use nsh_base::{button as base_button, theme};
 use nsh_core::element::desktop::{current_window, quit, set_tray, tray, MenuItem};
@@ -17,13 +17,14 @@ use crate::dialogs;
 use crate::store::{self, Route};
 use crate::ui::{
     action, card, color, focus_ring, icons, radius, sidebar_nav_item, status_badge,
-    terminal_drawer, toolbar_separator, ButtonKind, IconKind, ValueTone, MOTION_FAST_MS,
+    terminal_drawer, ButtonKind, IconKind, ValueTone, MOTION_FAST_MS,
 };
 use crate::views;
 
 /// Root desktop screen of Sundae.
 pub fn screen() -> impl IntoElement {
     let win = current_window();
+    remember_window_placement(win.clone(), 880.0, 600.0);
     let close_confirm_open = signal(false);
 
     // Background task poller & floating toast auto-dismiss effect
@@ -168,7 +169,7 @@ fn title_bar() -> impl IntoElement {
             )
         }));
 
-    let right = view()
+    let right_actions = view()
         .flex_row()
         .items_center()
         .gap(px(6.0))
@@ -194,12 +195,13 @@ fn title_bar() -> impl IntoElement {
             },
             || false,
             store::toggle_terminal,
-        ))
-        .child(toolbar_separator())
-        .child(theme_mode_segmented(
-            store::theme_mode,
-            store::set_theme_mode,
         ));
+
+    let right = title_bar_right_with_theme(
+        right_actions,
+        store::theme_mode,
+        store::set_theme_mode,
+    );
 
     title_bar_shell(48.0, left, center, right).bg(move || theme().sidebar)
 }

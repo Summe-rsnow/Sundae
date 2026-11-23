@@ -41,7 +41,7 @@ All colors in presentation code are consumed strictly via `nsh_base::theme()` (a
 
 ```text
 +-----------------------------------------------------------------------------+
-| [logo-mark.svg] Sundae [v1.0.0]   <Installed · Updates · Buckets>   [R][T][S/L/D] [_][O][X] |  48px Hidden Title Bar
+| [logo-mark.svg] Sundae [v1.0.1]   <Installed · Updates · Buckets>   [R][T]|[S/L/D] [_][O][X] |  48px Hidden Title Bar
 +-------------------+---------------------------------------------------------+
 | Sidebar (212px)   | Active Workspace View (flex_1)                          |
 |  - Discover       |   - Discover: Search + Bucket chips + virtual_list      |
@@ -59,7 +59,7 @@ All colors in presentation code are consumed strictly via `nsh_base::theme()` (a
 ### Key Architectural Invariants
 1. **Store (`src/store/{mod.rs, actions.rs}`)**: Module-level private signals only (zero `pub Signal`). `src/store/mod.rs` owns reactive state and tracked selectors; `src/store/actions.rs` executes background `rayon` Scoop scanning (`BucketScanner::scan_buckets`, `InstalledManager::scan_installed`, `UpdatesManager::check_updates`), task-queue polling, config saves, and GitHub release checks, committing atomically back to the UI thread so cold start paints in <50ms.
 2. **Virtualized Lists**: `discover.rs`, `installed.rs`, `updates.rs`, and `terminal_drawer.rs` use `virtual_list(count, |at| ...)` with zero per-row local signals and zero `dynamic` loops rebuilding list cards.
-3. **Destructive Guardrails**: Uninstall (`confirm_uninstall_overlay`, with optional `--purge` checkbox) and bucket removal (`confirm_remove_bucket_overlay`) are built with `bento::ui::confirm_dialog`. Window close respects `CloseBehavior` (`Ask` / `Tray` / `Exit`).
+3. **Destructive Guardrails & Window Memory**: Uninstall (`confirm_uninstall_overlay`, with optional `--purge` checkbox) and bucket removal (`confirm_remove_bucket_overlay`) are built with `bento::ui::confirm_dialog`. Window close respects `CloseBehavior` (`Ask` / `Tray` / `Exit`), and window size/position is remembered via `bento::shell::remember_window_placement` (880×600 minimum). Title bar right controls use `bento::shell::title_bar_right_with_theme`.
 4. **Cross-Platform Directory Opening**: Delegates via `bento::shell::open_directory` and `bento::shell::open_local_file` (`explorer` / `open` / `xdg-open`), never `nsh_core::open_url` (which rejects Windows drive-letter paths in NSH 0.6.1).
 5. **Unified Family Icons & Brand Assets**: All 24×24 `currentColor` stroke icons are centralized in `bento::ui::icons` and re-exported by `src/ui/icons.rs` with zero local stroke SVGs. Sundae owns only its full-color brand mark (`assets/logo-mark.svg`, rendered via `bento::ui::icons::brand_mark_svg`), desktop icon (`assets/logo.svg`, `assets/icon.png`), and 64×64 tray icon (`assets/tray-icon.png`).
 

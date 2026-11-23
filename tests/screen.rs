@@ -102,11 +102,32 @@ fn real_app_root_mounts_and_opens_about_and_config() -> Result<(), String> {
     .map_err(|e| e.to_string())?;
 
     app.wait_for("Sundae")?;
-    assert!(app.screen().shows("v1.0.0"));
+    assert!(app.screen().shows("v1.0.1"));
+
+    // Verify title bar right controls: Refresh and Terminal sit left of the theme switcher.
+    let layout = app.screen().layout_nodes();
+    let refresh_id = app.screen().id("role:button[刷新索引]")?;
+    let terminal_id = app.screen().id("role:button[切换终端抽屉]")?;
+    let theme_id = app.screen().id("role:button[跟随系统]")?;
+    let x_of = |id| {
+        layout
+            .iter()
+            .find(|n| n.id == id)
+            .map(|n| n.bounds.origin.x.0)
+            .ok_or_else(|| format!("missing layout bounds for {id:?}"))
+    };
+    let refresh_x = x_of(refresh_id)?;
+    let terminal_x = x_of(terminal_id)?;
+    let theme_x = x_of(theme_id)?;
+    assert!(
+        refresh_x < terminal_x && terminal_x < theme_x,
+        "expected refresh ({refresh_x}) < terminal ({terminal_x}) < theme ({theme_x})"
+    );
+
     app.press("label:关于 Sundae")?;
     app.wait_for("版本更新")?;
     app.wait_for("Summe-rsnow/Sundae")?;
-    assert!(app.screen().shows("v1.0.0"));
+    assert!(app.screen().shows("v1.0.1"));
     app.press("关闭")?;
     app.wait_for_gone("版本更新", Duration::from_secs(2))?;
 
