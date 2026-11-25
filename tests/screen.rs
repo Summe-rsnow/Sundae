@@ -102,10 +102,11 @@ fn real_app_root_mounts_and_opens_about_and_config() -> Result<(), String> {
     .map_err(|e| e.to_string())?;
 
     app.wait_for("Sundae")?;
-    assert!(app.screen().shows("v1.1.0"));
+    assert!(app.screen().shows("v1.1.1"));
 
-    // Verify title bar right controls: Refresh and Terminal sit left of the theme switcher.
+    // Verify title bar right controls: Autostart, Refresh, and Terminal sit left of the theme switcher.
     let layout = app.screen().layout_nodes();
+    let autostart_id = app.screen().id("role:switch[开机自启]")?;
     let refresh_id = app.screen().id("role:button[刷新索引]")?;
     let terminal_id = app.screen().id("role:button[切换终端抽屉]")?;
     let theme_id = app.screen().id("role:button[跟随系统]")?;
@@ -116,18 +117,19 @@ fn real_app_root_mounts_and_opens_about_and_config() -> Result<(), String> {
             .map(|n| n.bounds.origin.x.0)
             .ok_or_else(|| format!("missing layout bounds for {id:?}"))
     };
+    let autostart_x = x_of(autostart_id)?;
     let refresh_x = x_of(refresh_id)?;
     let terminal_x = x_of(terminal_id)?;
     let theme_x = x_of(theme_id)?;
     assert!(
-        refresh_x < terminal_x && terminal_x < theme_x,
-        "expected refresh ({refresh_x}) < terminal ({terminal_x}) < theme ({theme_x})"
+        autostart_x < refresh_x && refresh_x < terminal_x && terminal_x < theme_x,
+        "expected autostart ({autostart_x}) < refresh ({refresh_x}) < terminal ({terminal_x}) < theme ({theme_x})"
     );
 
     app.press("label:关于 Sundae")?;
     app.wait_for("版本更新")?;
     app.wait_for("Summe-rsnow/Sundae")?;
-    assert!(app.screen().shows("v1.1.0"));
+    assert!(app.screen().shows("v1.1.1"));
     app.press("关闭")?;
     app.wait_for_gone("版本更新", Duration::from_secs(2))?;
 
@@ -168,8 +170,12 @@ fn navigation_switches_between_all_five_views() -> Result<(), String> {
     app.wait_for("Scoop 选项配置")?;
     app.wait_for("Aria2 多线程下载加速")?;
     app.wait_for("Sundae 窗口与托盘行为")?;
-    app.wait_for("开机自启")?;
-    app.screen().id("label:开机自启")?;
+
+    // Toggle unified title-bar 开机自启 switch in test mode (no live OS registry mutation)
+    app.press("role:switch[开机自启]")?;
+    app.wait_for("已开启开机自启")?;
+    app.press("role:switch[开机自启]")?;
+    app.wait_for("已关闭开机自启")?;
 
     Ok(())
 }

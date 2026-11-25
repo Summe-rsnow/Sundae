@@ -105,9 +105,6 @@ struct ThemeModeState(ThemeMode);
 struct CloseBehaviorState(CloseBehavior);
 
 #[derive(Default, Clone, PartialEq)]
-struct AutoStartState(bool);
-
-#[derive(Default, Clone, PartialEq)]
 struct UpdateCheckState(UpdateStatus);
 
 #[derive(Default, Clone, PartialEq)]
@@ -193,9 +190,6 @@ fn theme_mode_sig() -> Signal<ThemeModeState> {
 }
 fn close_behavior_sig() -> Signal<CloseBehaviorState> {
     global::<CloseBehaviorState>()
-}
-fn autostart_sig() -> Signal<AutoStartState> {
-    global::<AutoStartState>()
 }
 fn update_status_sig() -> Signal<UpdateCheckState> {
     global::<UpdateCheckState>()
@@ -343,21 +337,15 @@ pub fn load() {
     let prefs = SundaePrefs::load();
     let theme_mode = ThemeMode::from_key(&prefs.theme_mode);
     let close_behavior = CloseBehavior::from_key(&prefs.close_behavior);
-    let autostart_enabled = match bento::autostart::is_autostart_enabled(crate::APP_META.name) {
-        Ok(enabled) => enabled,
-        Err(err) => {
-            log::warn!("Failed to query autostart state: {err}");
-            false
-        }
-    };
     let is_missing = !env.is_installed();
+
+    bento::shell::init_autostart("com.xcmm.sundae", Some("Sundae"));
 
     batch(|| {
         env_sig().set(EnvState(env));
         scoop_config_sig().set(ScoopConfigState(cfg));
         theme_mode_sig().set(ThemeModeState(theme_mode));
         close_behavior_sig().set(CloseBehaviorState(close_behavior));
-        autostart_sig().set(AutoStartState(autostart_enabled));
         missing_scoop_sig().set(MissingScoopState(is_missing));
     });
 
@@ -371,6 +359,7 @@ pub fn load() {
 /// Seeds the store with deterministic data for headless UI tests.
 pub fn seed_for_test(index: SearchIndex, installed: Vec<InstalledApp>, config: ScoopConfig) {
     let updates = UpdatesManager::check_updates(&installed, &index);
+    bento::shell::init_autostart_for_test(false);
     batch(|| {
         missing_scoop_sig().set(MissingScoopState(false));
         indexing_sig().set(IndexingState(false));
@@ -378,7 +367,6 @@ pub fn seed_for_test(index: SearchIndex, installed: Vec<InstalledApp>, config: S
         installed_sig().set(InstalledState(installed));
         updates_sig().set(UpdatesState(updates));
         scoop_config_sig().set(ScoopConfigState(config));
-        autostart_sig().set(AutoStartState(false));
     });
 }
 
@@ -559,30 +547,6 @@ pub fn close_behavior_untracked() -> CloseBehavior {
 pub fn set_close_behavior(behavior: CloseBehavior) {
     close_behavior_sig().set(CloseBehaviorState(behavior));
     persist_prefs();
-}
-
-pub fn autostart_enabled() -> bool {
-    autostart_sig().get().0
-}
-
-pub fn set_autostart_enabled(enabled: bool) {
-    match bento::autostart::set_autostart_enabled(crate::APP_META.name, enabled) {
-        Ok(()) => {
-            autostart_sig().set(AutoStartState(enabled));
-            if enabled {
-                notices().notify_ok("已开启开机自启");
-            } else {
-                notices().notify_ok("已关闭开机自启");
-            }
-        }
-        Err(err) => {
-            log::warn!("Failed to update autostart setting: {err}");
-            let actual = bento::autostart::is_autostart_enabled(crate::APP_META.name)
-                .unwrap_or_else(|_| autostart_sig().get_untracked().0);
-            autostart_sig().set(AutoStartState(actual));
-            notices().notify_bad(format!("设置开机自启失败：{err}"));
-        }
-    }
 }
 
 // --- Notices & Updater ---
