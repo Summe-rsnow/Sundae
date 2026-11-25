@@ -6,8 +6,9 @@
 //! - System tray, close-button interception (`CloseBehavior`), keyboard shortcuts, floating toasts
 
 use bento::shell::{
-    bind_close_handler, close_behavior_submenu, confirm_close_dialog, remember_window_placement,
-    title_bar_brand_clickable, title_bar_right_with_theme, title_bar_shell,
+    autostart_menu_item, bind_close_handler, close_behavior_submenu, confirm_close_dialog,
+    remember_window_placement, title_bar_brand_clickable, title_bar_right_with_theme,
+    title_bar_shell,
 };
 use nsh_base::{button as base_button, theme};
 use nsh_core::element::desktop::{current_window, quit, set_tray, tray, MenuItem};
@@ -47,10 +48,11 @@ pub fn screen() -> impl IntoElement {
         close_confirm_open.set(true);
     });
 
-    // System tray reflecting live CloseBehavior & allowing quick window restore/quit
+    // System tray reflecting live CloseBehavior & AutoStart state
     let win_tray = win.clone();
     effect(move || {
         let behavior = store::close_behavior();
+        let autostart = store::autostart_enabled();
         let show_win = win_tray.clone();
         let show_win_click = win_tray.clone();
         let updates_win = win_tray.clone();
@@ -81,6 +83,7 @@ pub fn screen() -> impl IntoElement {
                         store::set_about_open(true);
                     }),
                     MenuItem::separator(),
+                    autostart_menu_item(autostart, store::set_autostart_enabled),
                     close_behavior_submenu(behavior, store::set_close_behavior),
                     MenuItem::separator(),
                     MenuItem::new("退出 Sundae").on_select(quit),

@@ -102,7 +102,7 @@ fn real_app_root_mounts_and_opens_about_and_config() -> Result<(), String> {
     .map_err(|e| e.to_string())?;
 
     app.wait_for("Sundae")?;
-    assert!(app.screen().shows("v1.0.1"));
+    assert!(app.screen().shows("v1.1.0"));
 
     // Verify title bar right controls: Refresh and Terminal sit left of the theme switcher.
     let layout = app.screen().layout_nodes();
@@ -127,7 +127,7 @@ fn real_app_root_mounts_and_opens_about_and_config() -> Result<(), String> {
     app.press("label:关于 Sundae")?;
     app.wait_for("版本更新")?;
     app.wait_for("Summe-rsnow/Sundae")?;
-    assert!(app.screen().shows("v1.0.1"));
+    assert!(app.screen().shows("v1.1.0"));
     app.press("关闭")?;
     app.wait_for_gone("版本更新", Duration::from_secs(2))?;
 
@@ -168,6 +168,8 @@ fn navigation_switches_between_all_five_views() -> Result<(), String> {
     app.wait_for("Scoop 选项配置")?;
     app.wait_for("Aria2 多线程下载加速")?;
     app.wait_for("Sundae 窗口与托盘行为")?;
+    app.wait_for("开机自启")?;
+    app.screen().id("label:开机自启")?;
 
     Ok(())
 }

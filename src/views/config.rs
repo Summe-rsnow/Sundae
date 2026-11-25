@@ -1,6 +1,6 @@
 //! Configuration view: visual editor for `~/.config/scoop/config.json` (proxy presets,
 //! GitHub token, Aria2 acceleration, Scoop mirror/branch, SQLite cache) plus Sundae desktop
-//! preferences (`CloseBehavior`). Uses `bento::ui` switches, fields, and floating Notice toasts.
+//! preferences (Auto-start & `CloseBehavior`). Uses `bento::ui` switches, fields, and floating Notice toasts.
 
 use bento::shell::CloseBehavior;
 use nsh_base::theme;
@@ -380,7 +380,7 @@ pub fn config_view() -> impl IntoElement {
                             ),
                     )
                     .child(
-                        // Section 5: Sundae Desktop Preferences (CloseBehavior)
+                        // Section 5: Sundae Desktop Preferences (Auto-start & CloseBehavior)
                         card()
                             .p_4()
                             .gap_3()
@@ -388,6 +388,41 @@ pub fn config_view() -> impl IntoElement {
                                 icons::SETTINGS,
                                 "Sundae 窗口与托盘行为",
                             ))
+                            .child(
+                                view()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap_3()
+                                    .child(
+                                        view()
+                                            .flex_1()
+                                            .gap(px(2.0))
+                                            .child(
+                                                text("开机自启")
+                                                    .text_sm()
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .text_color(move || theme().foreground),
+                                            )
+                                            .child(
+                                                text("登录系统时自动启动 Sundae（即时生效，与托盘菜单同步）")
+                                                    .text_xs()
+                                                    .text_color(move || theme().muted_foreground),
+                                            ),
+                                    )
+                                    .child(toggle_switch(
+                                        store::autostart_enabled,
+                                        "开机自启",
+                                        None,
+                                        store::set_autostart_enabled,
+                                    )),
+                            )
+                            .child(
+                                view()
+                                    .h(px(1.0))
+                                    .w_full()
+                                    .bg(move || theme().border),
+                            )
                             .child(
                                 text("点击主窗口右上角关闭按钮时的默认行为（即时保存生效）：")
                                     .text_xs()

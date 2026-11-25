@@ -7,10 +7,10 @@
 **专为 Windows Scoop 打造的轻快原生桌面软件包管理器**
 
 在一个清爽克制的原生桌面窗口内完成软件包检索、已安装应用管理、一键更新、Bucket 仓库源配置与实时命令终端监控，无需在命令行窗口间来回切换。  
-基于 **Rust + [NSH](https://github.com/longbridge/nsh) + [Bento](https://github.com/Summe-rsnow/Bento) `v1.0.1`** 构建，纯原生渲染，无 JavaScript 运行时开销。
+基于 **Rust + [NSH](https://github.com/longbridge/nsh) + [Bento](https://github.com/Summe-rsnow/Bento) `v1.1.0`** 构建，纯原生渲染，无 JavaScript 运行时开销。
 
 <p>
-  <a href="https://github.com/Summe-rsnow/Sundae/releases"><img src="https://img.shields.io/badge/Version-v1.0.1-f43f5e?style=flat-square" alt="Version v1.0.1" /></a>
+  <a href="https://github.com/Summe-rsnow/Sundae/releases"><img src="https://img.shields.io/badge/Version-v1.1.0-f43f5e?style=flat-square" alt="Version v1.1.0" /></a>
   <img src="https://img.shields.io/badge/Rust-2024-orange?style=flat-square&logo=rust" alt="Rust 2024" />
   <img src="https://img.shields.io/badge/Platform-Windows-0ea5e9?style=flat-square" alt="Platform Windows" />
   <img src="https://img.shields.io/badge/UI-NSH%20Native-6366f1?style=flat-square" alt="UI NSH Native" />
@@ -46,7 +46,7 @@
   - 支持填写自定义名称与 Git 仓库地址添加第三方源，并在移除仓库源前弹出**安全确认弹窗**防止误删。
 - **⚙️ 选项配置 (Config)**
   - 可视化编辑 `~/.config/scoop/config.json`：支持 HTTP / SOCKS 代理快捷预设（`none` / `default` / `127.0.0.1:7890`）与 GitHub Token、**Aria2** 多线程下载加速（开关及 `aria2-split` 并发数）、Scoop 核心仓库镜像（GitHub / Gitee）与更新分支（`master` / `develop`），以及 SQLite 缓存与忽略运行中进程等高级开关。
-  - 支持即时生效的 **Sundae 窗口与托盘关闭行为**（`每次询问` / `最小化到托盘` / `直接退出应用`）。
+  - 支持即时生效的 **Sundae 开机自启**（与托盘菜单实时同步）及 **窗口与托盘关闭行为**（`每次询问` / `最小化到托盘` / `直接退出应用`）。
 - **🖥️ 实时终端抽屉与原生桌面体验**
   - 底部集成可折叠虚拟化**任务执行终端抽屉**，实时流式输出 Scoop 命令日志（区分标准输出与错误着色），支持任务队列、停止当前任务与清空日志。
   - 自动记忆并恢复窗口尺寸与屏幕位置（支持最小化到托盘与退出前同步落盘），顶栏采用家族统一右置外观切换器；内置桌面快捷键（`Ctrl+R` 刷新本地索引、`Ctrl+J` 切换终端抽屉、`Esc` 关闭当前顶层弹窗）、跟随系统 / 浅色 / 深色三模式外观切换、Windows 系统托盘常驻以及 **GitHub Releases** 新版本检测。
@@ -101,7 +101,7 @@ Sundae/
 ├── .github/workflows/
 │   └── release.yml         # Tag 推送自动构建并发布 GitHub Release 工作流
 ├── assets/                 # 应用图标、Logo、品牌标与 64×64 托盘图标
-├── nsh.json                # 应用元信息、版本号（1.0.1）、窗口配置与主题声明
+├── nsh.json                # 应用元信息、版本号（1.1.0）、窗口配置与主题声明
 ├── theme.json              # 浅色 / 深色语义色 Token（与 Bento 家族规范对齐）
 ├── DESIGN.md               # 设计规范、布局架构、动效清单与无障碍约定
 ├── src/
@@ -148,10 +148,10 @@ Sundae/
 
 | 工具 | 当前版本 | 仓库地址 | 定位与职责 |
 |---|---|---|---|
-| **Bento** | `v1.0.1` | [Summe-rsnow/Bento](https://github.com/Summe-rsnow/Bento) | 共享原生 UI 组件库、统一 24×24 图标库与桌面壳基础设施 |
-| **Wonton** | `v1.2.2` | [Summe-rsnow/Wonton](https://github.com/Summe-rsnow/Wonton) | 专为 Antigravity 打造的进程级独立代理与多账号额度管理工具 |
-| **Sundae** | `v1.0.1` | [Summe-rsnow/Sundae](https://github.com/Summe-rsnow/Sundae) | 专为 Windows Scoop 打造的轻快原生桌面软件包管理器 |
-| **Ramen** | `v1.0.0` | [Summe-rsnow/Ramen](https://github.com/Summe-rsnow/Ramen) | 专为 Windows 打造的极速桌面文件搜索与即时索引检索工具 |
+| **Bento** | `v1.1.0` | [Summe-rsnow/Bento](https://github.com/Summe-rsnow/Bento) | 共享原生 UI 组件库、统一 24×24 图标库与桌面壳基础设施 |
+| **Wonton** | `v1.3.0` | [Summe-rsnow/Wonton](https://github.com/Summe-rsnow/Wonton) | 专为 Antigravity 打造的进程级独立代理与多账号额度管理工具 |
+| **Sundae** | `v1.1.0` | [Summe-rsnow/Sundae](https://github.com/Summe-rsnow/Sundae) | 专为 Windows Scoop 打造的轻快原生桌面软件包管理器 |
+| **Ramen** | `v1.1.0` | [Summe-rsnow/Ramen](https://github.com/Summe-rsnow/Ramen) | 专为 Windows 打造的极速桌面文件搜索与即时索引检索工具 |
 
 ---
 
