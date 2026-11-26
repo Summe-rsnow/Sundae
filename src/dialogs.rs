@@ -212,7 +212,7 @@ fn package_detail_content(pkg: PackageManifest) -> impl IntoElement {
                                     .text_color(move || theme().foreground),
                             )
                             .child(action_sm(ButtonKind::Secondary, "复制命令", move || {
-                                set_clipboard(install_cmd_copy.clone());
+                                let _ = set_clipboard(install_cmd_copy.clone());
                                 store::notices()
                                     .notify_ok(format!("已复制命令：{}", install_cmd_copy));
                             })),

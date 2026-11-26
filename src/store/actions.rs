@@ -8,9 +8,9 @@ use nsh_core::prelude::*;
 
 use super::{
     append_logs, begin_scan, commit_scan, configured_proxy_for_updater, current_queue,
-    ensure_queue, finish_scan_with_error, is_scan_seq_current, is_update_checking, notices,
-    set_env_missing, set_pending_count, set_scoop_config, set_task_state, set_terminal_open,
-    set_update_status,
+    ensure_queue, finish_scan_with_error, is_scan_seq_current, is_update_checking,
+    note_op_enqueued, note_task_finished, note_task_idle, note_task_running, notices,
+    set_env_missing, set_scoop_config, set_terminal_open, set_update_status,
 };
 use crate::scoop::config::ScoopConfig;
 use crate::scoop::env::ScoopEnv;
@@ -30,19 +30,19 @@ pub fn start_task_poller() {
         while let Ok(status) = status_rx.try_recv() {
             match status {
                 TaskStatus::Running(op) => {
-                    set_task_state(true, Some(op.display_name()), queue.pending_count());
+                    note_task_running(op.display_name(), queue.pending_count());
                 }
                 TaskStatus::Success(op) => {
-                    set_task_state(false, None, queue.pending_count());
+                    note_task_finished(true, queue.pending_count());
                     notices().notify_ok(format!("已完成：{}", op.display_name()));
                     needs_refresh = true;
                 }
                 TaskStatus::Failed { op, error } => {
-                    set_task_state(false, None, queue.pending_count());
+                    note_task_finished(false, queue.pending_count());
                     notices().notify_bad(format!("{}失败：{}", op.display_name(), error));
                 }
                 TaskStatus::Idle => {
-                    set_task_state(false, None, 0);
+                    note_task_idle();
                 }
             }
         }
@@ -94,7 +94,7 @@ pub fn enqueue_op(op: ScoopOp) {
     let queue = ensure_queue();
     set_terminal_open(true);
     queue.enqueue(op);
-    set_pending_count(queue.pending_count());
+    note_op_enqueued(queue.pending_count());
 }
 
 pub fn cancel_current_task() {

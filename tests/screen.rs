@@ -78,11 +78,13 @@ fn sample_installed() -> Vec<InstalledApp> {
 #[component]
 fn SeededApp() -> impl IntoElement {
     store::seed_for_test(sample_index(), sample_installed(), ScoopConfig::default());
-    view()
-        .flex_1()
-        .bg(move || theme().background)
-        .text_color(move || theme().foreground)
-        .child(shell::screen())
+    bento::shell::desktop_window("Sundae", 880.0, 600.0, 48.0, || {
+        view()
+            .flex_1()
+            .bg(move || theme().background)
+            .text_color(move || theme().foreground)
+            .child(shell::screen())
+    })
 }
 
 fn start_seeded() -> Headless {
@@ -102,7 +104,7 @@ fn real_app_root_mounts_and_opens_about_and_config() -> Result<(), String> {
     .map_err(|e| e.to_string())?;
 
     app.wait_for("Sundae")?;
-    assert!(app.screen().shows("v1.1.1"));
+    assert!(app.screen().shows(concat!("v", env!("CARGO_PKG_VERSION"))));
 
     // Verify title bar right controls: Autostart, Refresh, and Terminal sit left of the theme switcher.
     let layout = app.screen().layout_nodes();
@@ -129,7 +131,7 @@ fn real_app_root_mounts_and_opens_about_and_config() -> Result<(), String> {
     app.press("label:关于 Sundae")?;
     app.wait_for("版本更新")?;
     app.wait_for("Summe-rsnow/Sundae")?;
-    assert!(app.screen().shows("v1.1.1"));
+    assert!(app.screen().shows(concat!("v", env!("CARGO_PKG_VERSION"))));
     app.press("关闭")?;
     app.wait_for_gone("版本更新", Duration::from_secs(2))?;
 
@@ -223,11 +225,13 @@ fn LargeListApp() -> impl IntoElement {
         })
         .collect();
     store::seed_for_test(SearchIndex::new(packages), vec![], ScoopConfig::default());
-    view()
-        .flex_1()
-        .bg(move || theme().background)
-        .text_color(move || theme().foreground)
-        .child(shell::screen())
+    bento::shell::desktop_window("Sundae", 880.0, 600.0, 48.0, || {
+        view()
+            .flex_1()
+            .bg(move || theme().background)
+            .text_color(move || theme().foreground)
+            .child(shell::screen())
+    })
 }
 
 #[test]

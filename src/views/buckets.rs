@@ -9,7 +9,7 @@ use nsh_core::prelude::*;
 use crate::scoop::process::ScoopOp;
 use crate::store;
 use crate::ui::{
-    action, action_disabled, action_sm, card, icons, section_header, status_badge, text_field,
+    action, action_busy, action_sm, card, icons, section_header, status_badge, text_field,
     ButtonKind, ValueTone,
 };
 
@@ -58,7 +58,7 @@ pub fn buckets_view() -> impl IntoElement {
                             ValueTone::Info,
                         )),
                 )
-                .child(action_disabled(
+                .child(action_busy(
                     ButtonKind::Primary,
                     "同步全部源",
                     store::is_task_running,

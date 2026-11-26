@@ -7,7 +7,7 @@ use nsh_core::prelude::*;
 use crate::scoop::process::ScoopOp;
 use crate::store;
 use crate::ui::{
-    action_disabled, action_sm, icons, radius, status_badge, ButtonKind, ValueTone,
+    action_busy, action_disabled, action_sm, icons, radius, status_badge, ButtonKind, ValueTone,
 };
 
 pub fn updates_view() -> impl IntoElement {
@@ -56,18 +56,33 @@ pub fn updates_view() -> impl IntoElement {
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        .child(action_disabled(
+                        .child(action_busy(
                             ButtonKind::Secondary,
                             "同步仓库源",
                             store::is_task_running,
                             || store::enqueue_op(ScoopOp::BucketUpdate),
                         ))
-                        .child(action_disabled(
-                            ButtonKind::Primary,
-                            "一键全部更新",
-                            move || updates.with(Vec::is_empty) || store::is_task_running(),
-                            || store::enqueue_op(ScoopOp::UpdateAll),
-                        )),
+                        .child(
+                            when(
+                                move || updates.with(Vec::is_empty),
+                                || {
+                                    action_disabled(
+                                        ButtonKind::Primary,
+                                        "一键全部更新",
+                                        || true,
+                                        || {},
+                                    )
+                                },
+                            )
+                            .otherwise(|| {
+                                action_busy(
+                                    ButtonKind::Primary,
+                                    "一键全部更新",
+                                    store::is_task_running,
+                                    || store::enqueue_op(ScoopOp::UpdateAll),
+                                )
+                            }),
+                        ),
                 ),
         )
         .child(

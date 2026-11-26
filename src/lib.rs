@@ -31,13 +31,14 @@ fn native(registry: &mut Registry) {
 /// The application's root component (`nsh.json` `"root"`).
 #[component]
 pub fn App() -> impl IntoElement {
-    bento::shell::init_desktop_window(880.0, 600.0, 48.0);
     store::load();
 
-    view()
-        .flex_1()
-        .bg(move || theme().background)
-        .text_color(move || theme().foreground)
-        .p_safe_area()
-        .child(shell::screen())
+    bento::shell::desktop_window("Sundae", 880.0, 600.0, 48.0, || {
+        view()
+            .flex_1()
+            .bg(move || theme().background)
+            .text_color(move || theme().foreground)
+            .p_safe_area()
+            .child(shell::screen())
+    })
 }

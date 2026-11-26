@@ -6,9 +6,10 @@
 //! - System tray, close-button interception (`CloseBehavior`), keyboard shortcuts, floating toasts
 
 use bento::shell::{
-    autostart_tray_item, bind_close_handler, close_behavior_submenu, confirm_close_dialog,
-    remember_window_placement, title_bar_autostart_toggle, title_bar_brand_clickable,
-    title_bar_right_with_theme, title_bar_shell,
+    autostart_tray_item, bind_close_handler, clear_window_progress, close_behavior_submenu,
+    confirm_close_dialog, remember_window_placement, restore_and_focus_window, set_window_progress,
+    title_bar_autostart_toggle, title_bar_brand_clickable, title_bar_right_with_theme,
+    title_bar_shell, WindowProgressState,
 };
 use nsh_base::{button as base_button, theme};
 use nsh_core::element::desktop::{current_window, quit, set_tray, tray, MenuItem};
@@ -17,7 +18,7 @@ use nsh_core::prelude::*;
 use crate::dialogs;
 use crate::store::{self, Route};
 use crate::ui::{
-    action, card, color, focus_ring, icons, radius, sidebar_nav_item, status_badge,
+    action_busy, card, color, focus_ring, icons, radius, sidebar_nav_item, status_badge,
     terminal_drawer, ButtonKind, IconKind, ValueTone, MOTION_FAST_MS,
 };
 use crate::views;
@@ -48,6 +49,23 @@ pub fn screen() -> impl IntoElement {
         close_confirm_open.set(true);
     });
 
+    // Mirror Scoop indexing and task-queue progress onto the OS taskbar / Dock
+    let win_progress = win.clone();
+    effect(move || match store::taskbar_progress() {
+        store::TaskbarProgress::None => clear_window_progress(&win_progress),
+        store::TaskbarProgress::Indeterminate => {
+            set_window_progress(&win_progress, WindowProgressState::Indeterminate, None);
+        }
+        store::TaskbarProgress::Normal(fraction) => {
+            set_window_progress(&win_progress, WindowProgressState::Normal, Some(fraction));
+        }
+        store::TaskbarProgress::Error => {
+            set_window_progress(&win_progress, WindowProgressState::Error, Some(1.0));
+        }
+    });
+    let win_progress_cleanup = win.clone();
+    cleanup(move || clear_window_progress(&win_progress_cleanup));
+
     // System tray reflecting live CloseBehavior & AutoStart state
     let win_tray = win.clone();
     effect(move || {
@@ -61,24 +79,17 @@ pub fn screen() -> impl IntoElement {
             tray()
                 .icon(icons::tray_icon_src())
                 .tooltip(format!("Sundae v{} — Scoop 包管理器", crate::APP_VERSION))
-                .on_click(move |_| {
-                    show_win_click.show();
-                    show_win_click.focus();
-                })
+                .on_click(move |_| restore_and_focus_window(&show_win_click))
                 .menu([
-                    MenuItem::new("显示主窗口").on_select(move || {
-                        show_win.show();
-                        show_win.focus();
-                    }),
+                    MenuItem::new("显示主窗口")
+                        .on_select(move || restore_and_focus_window(&show_win)),
                     MenuItem::new("检查软件更新").on_select(move || {
-                        updates_win.show();
-                        updates_win.focus();
+                        restore_and_focus_window(&updates_win);
                         store::set_route(Route::Updates);
                         store::refresh_all();
                     }),
                     MenuItem::new("关于与检查更新…").on_select(move || {
-                        about_win.show();
-                        about_win.focus();
+                        restore_and_focus_window(&about_win);
                         store::set_about_open(true);
                     }),
                     MenuItem::separator(),
@@ -430,13 +441,20 @@ fn missing_scoop_view() -> impl IntoElement {
                                 .text_color(move || theme().foreground),
                         )
                         .child(crate::ui::action_sm(ButtonKind::Secondary, "复制安装命令", || {
-                            set_clipboard("irm get.scoop.sh | iex");
+                            let _ = set_clipboard("irm get.scoop.sh | iex");
                             store::notices().notify_ok("已复制 Scoop 安装命令");
                         })),
                 )
-                .child(action(
+                .child(action_busy(
                     ButtonKind::Primary,
-                    "重新检测环境",
+                    move || {
+                        if store::is_indexing() {
+                            "检测中…"
+                        } else {
+                            "重新检测环境"
+                        }
+                    },
+                    store::is_indexing,
                     store::refresh_all,
                 )),
         )

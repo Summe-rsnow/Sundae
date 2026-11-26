@@ -12,6 +12,7 @@ pub use actions::{
 };
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use bento::shell::{CloseBehavior, NoticeCenter, ThemeMode};
 use bento::updater::UpdateStatus;
@@ -33,6 +34,15 @@ pub enum Route {
     Updates,
     Buckets,
     Config,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum TaskbarProgress {
+    #[default]
+    None,
+    Indeterminate,
+    Normal(f32),
+    Error,
 }
 
 #[derive(Clone)]
@@ -88,6 +98,18 @@ struct RunningTaskLabel(Option<String>);
 
 #[derive(Default, Clone, PartialEq)]
 struct PendingCountState(usize);
+
+#[derive(Default, Clone, PartialEq)]
+struct TaskBatchTotal(usize);
+
+#[derive(Default, Clone, PartialEq)]
+struct TaskBatchCompleted(usize);
+
+#[derive(Default, Clone, PartialEq)]
+struct TaskErrorFlash(bool);
+
+#[derive(Default, Clone, PartialEq)]
+struct TaskErrorSeq(u64);
 
 #[derive(Default, Clone, PartialEq)]
 struct TerminalOpenState(bool);
@@ -176,6 +198,18 @@ fn running_label_sig() -> Signal<RunningTaskLabel> {
 fn pending_count_sig() -> Signal<PendingCountState> {
     global::<PendingCountState>()
 }
+fn task_batch_total_sig() -> Signal<TaskBatchTotal> {
+    global::<TaskBatchTotal>()
+}
+fn task_batch_completed_sig() -> Signal<TaskBatchCompleted> {
+    global::<TaskBatchCompleted>()
+}
+fn task_error_flash_sig() -> Signal<TaskErrorFlash> {
+    global::<TaskErrorFlash>()
+}
+fn task_error_seq_sig() -> Signal<TaskErrorSeq> {
+    global::<TaskErrorSeq>()
+}
 fn terminal_open_sig() -> Signal<TerminalOpenState> {
     global::<TerminalOpenState>()
 }
@@ -226,16 +260,79 @@ fn current_queue() -> Option<Arc<TaskQueue>> {
     queue_sig().with_untracked(|h| h.0.clone())
 }
 
-fn set_task_state(running: bool, label: Option<String>, pending: usize) {
+fn clear_task_error() {
+    task_error_flash_sig().set(TaskErrorFlash(false));
+}
+
+fn flash_task_error() {
+    let next_seq = task_error_seq_sig().get_untracked().0.wrapping_add(1);
     batch(|| {
-        task_running_sig().set(TaskRunningState(running));
-        running_label_sig().set(RunningTaskLabel(label));
-        pending_count_sig().set(PendingCountState(pending));
+        task_error_seq_sig().set(TaskErrorSeq(next_seq));
+        task_error_flash_sig().set(TaskErrorFlash(true));
+    });
+    set_timeout(Duration::from_secs(4), move || {
+        if task_error_seq_sig().get_untracked().0 == next_seq {
+            task_error_flash_sig().set(TaskErrorFlash(false));
+        }
     });
 }
 
-fn set_pending_count(pending: usize) {
-    pending_count_sig().set(PendingCountState(pending));
+fn note_op_enqueued(pending: usize) {
+    let prev_total = task_batch_total_sig().get_untracked().0;
+    batch(|| {
+        task_error_flash_sig().set(TaskErrorFlash(false));
+        pending_count_sig().set(PendingCountState(pending));
+        if prev_total == 0 {
+            task_batch_total_sig().set(TaskBatchTotal(pending.max(1)));
+            task_batch_completed_sig().set(TaskBatchCompleted(0));
+        } else {
+            task_batch_total_sig().set(TaskBatchTotal(prev_total.saturating_add(1)));
+        }
+    });
+}
+
+fn note_task_running(label: String, pending: usize) {
+    let prev_total = task_batch_total_sig().get_untracked().0;
+    batch(|| {
+        task_error_flash_sig().set(TaskErrorFlash(false));
+        task_running_sig().set(TaskRunningState(true));
+        running_label_sig().set(RunningTaskLabel(Some(label)));
+        pending_count_sig().set(PendingCountState(pending));
+        if prev_total < pending.max(1) {
+            task_batch_total_sig().set(TaskBatchTotal(pending.max(1)));
+        }
+    });
+}
+
+fn note_task_finished(succeeded: bool, pending: usize) {
+    let next_completed = task_batch_completed_sig()
+        .get_untracked()
+        .0
+        .saturating_add(1);
+    batch(|| {
+        task_running_sig().set(TaskRunningState(false));
+        running_label_sig().set(RunningTaskLabel(None));
+        pending_count_sig().set(PendingCountState(pending));
+        if pending == 0 {
+            task_batch_total_sig().set(TaskBatchTotal(0));
+            task_batch_completed_sig().set(TaskBatchCompleted(0));
+        } else {
+            task_batch_completed_sig().set(TaskBatchCompleted(next_completed));
+        }
+    });
+    if !succeeded && pending == 0 {
+        flash_task_error();
+    }
+}
+
+fn note_task_idle() {
+    batch(|| {
+        task_running_sig().set(TaskRunningState(false));
+        running_label_sig().set(RunningTaskLabel(None));
+        pending_count_sig().set(PendingCountState(0));
+        task_batch_total_sig().set(TaskBatchTotal(0));
+        task_batch_completed_sig().set(TaskBatchCompleted(0));
+    });
 }
 
 fn append_logs(new_logs: Vec<LogLine>) {
@@ -270,6 +367,7 @@ fn begin_scan(env: ScoopEnv) -> u64 {
         missing_scoop_sig().set(MissingScoopState(false));
         scan_seq_sig().set(ScanSeq(next_seq));
         indexing_sig().set(IndexingState(true));
+        clear_task_error();
     });
     next_seq
 }
@@ -289,6 +387,7 @@ fn commit_scan(index: SearchIndex, installed: Vec<InstalledApp>, updates: Vec<Ap
 
 fn finish_scan_with_error(err: impl std::fmt::Display) {
     indexing_sig().set(IndexingState(false));
+    flash_task_error();
     notices().notify_bad(format!("后台扫描 Scoop 索引失败：{err}"));
 }
 
@@ -363,6 +462,12 @@ pub fn seed_for_test(index: SearchIndex, installed: Vec<InstalledApp>, config: S
     batch(|| {
         missing_scoop_sig().set(MissingScoopState(false));
         indexing_sig().set(IndexingState(false));
+        task_running_sig().set(TaskRunningState(false));
+        running_label_sig().set(RunningTaskLabel(None));
+        pending_count_sig().set(PendingCountState(0));
+        task_batch_total_sig().set(TaskBatchTotal(0));
+        task_batch_completed_sig().set(TaskBatchCompleted(0));
+        task_error_flash_sig().set(TaskErrorFlash(false));
         index_sig().set(IndexState(index));
         installed_sig().set(InstalledState(installed));
         updates_sig().set(UpdatesState(updates));
@@ -489,6 +594,40 @@ pub fn running_task_label() -> Option<String> {
 
 pub fn pending_task_count() -> usize {
     pending_count_sig().get().0
+}
+
+fn compute_taskbar_progress(
+    task_running: bool,
+    pending: usize,
+    batch_total: usize,
+    batch_completed: usize,
+    indexing: bool,
+    error_flash: bool,
+) -> TaskbarProgress {
+    if task_running || pending > 0 {
+        if batch_total > 1 && batch_completed > 0 {
+            TaskbarProgress::Normal((batch_completed as f32 / batch_total as f32).clamp(0.0, 1.0))
+        } else {
+            TaskbarProgress::Indeterminate
+        }
+    } else if indexing {
+        TaskbarProgress::Indeterminate
+    } else if error_flash {
+        TaskbarProgress::Error
+    } else {
+        TaskbarProgress::None
+    }
+}
+
+pub fn taskbar_progress() -> TaskbarProgress {
+    compute_taskbar_progress(
+        is_task_running(),
+        pending_task_count(),
+        task_batch_total_sig().get().0,
+        task_batch_completed_sig().get().0,
+        is_indexing(),
+        task_error_flash_sig().get().0,
+    )
 }
 
 pub fn terminal_open() -> bool {
@@ -624,4 +763,38 @@ pub fn dismiss_top_dialog() -> bool {
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_taskbar_progress, TaskbarProgress};
+
+    #[test]
+    fn taskbar_progress_covers_idle_indeterminate_normal_and_error_states() {
+        assert_eq!(
+            compute_taskbar_progress(false, 0, 0, 0, false, false),
+            TaskbarProgress::None
+        );
+        assert_eq!(
+            compute_taskbar_progress(false, 0, 0, 0, true, false),
+            TaskbarProgress::Indeterminate
+        );
+        assert_eq!(
+            compute_taskbar_progress(true, 1, 1, 0, false, false),
+            TaskbarProgress::Indeterminate
+        );
+        assert_eq!(
+            compute_taskbar_progress(true, 2, 4, 2, false, false),
+            TaskbarProgress::Normal(0.5)
+        );
+        assert_eq!(
+            compute_taskbar_progress(false, 0, 0, 0, false, true),
+            TaskbarProgress::Error
+        );
+        // Active task takes precedence over stale error flash.
+        assert_eq!(
+            compute_taskbar_progress(true, 1, 2, 1, false, true),
+            TaskbarProgress::Normal(0.5)
+        );
+    }
 }

@@ -2,7 +2,7 @@
 
 ## 1. Product Purpose & Targets
 
-**Sundae** is a native desktop GUI package manager for [Scoop](https://scoop.sh/), built on **Native Shell (NSH 0.6.1)** and the shared **`Bento`** UI/desktop toolkit (`bento`).
+**Sundae** is a native desktop GUI package manager for [Scoop](https://scoop.sh/), built on **Native Shell (NSH 0.7.1)** and the shared **`Bento`** UI/desktop toolkit (`bento`).
 
 - **Primary target**: Windows desktop (`minSize: 880x600`, native hidden 48px title bar, system tray, keyboard-first desktop pointer controls).
 - **Secondary compatibility**: macOS and Linux desktop builds compile cleanly (with Scoop-absent empty/guidance state when `~/scoop` is not present).
@@ -59,8 +59,8 @@ All colors in presentation code are consumed strictly via `nsh_base::theme()` (a
 ### Key Architectural Invariants
 1. **Store (`src/store/{mod.rs, actions.rs}`)**: Module-level private signals only (zero `pub Signal`). `src/store/mod.rs` owns reactive state and tracked selectors; `src/store/actions.rs` executes background `rayon` Scoop scanning (`BucketScanner::scan_buckets`, `InstalledManager::scan_installed`, `UpdatesManager::check_updates`), task-queue polling, config saves, and GitHub release checks, committing atomically back to the UI thread so cold start paints in <50ms.
 2. **Virtualized Lists**: `discover.rs`, `installed.rs`, `updates.rs`, and `terminal_drawer.rs` use `virtual_list(count, |at| ...)` with zero per-row local signals and zero `dynamic` loops rebuilding list cards.
-3. **Destructive Guardrails & Window Memory**: Uninstall (`confirm_uninstall_overlay`, with optional `--purge` checkbox) and bucket removal (`confirm_remove_bucket_overlay`) are built with `bento::ui::confirm_dialog`. Window close respects `CloseBehavior` (`Ask` / `Tray` / `Exit`), and window size/position is remembered via `bento::shell::remember_window_placement` (880×600 minimum). Title bar right controls use `bento::shell::title_bar_right_with_theme`.
-4. **Cross-Platform Directory Opening**: Delegates via `bento::shell::open_directory` and `bento::shell::open_local_file` (`explorer` / `open` / `xdg-open`), never `nsh_core::open_url` (which rejects Windows drive-letter paths in NSH 0.6.1).
+3. **Window Model v2, Destructive Guardrails & Window Memory**: Root UI is wrapped in `bento::shell::desktop_window` (`window().id("main")`, 880×600 minimum, 48px hidden title bar, `close_on_press = false`, automatic `on_reopen` single-instance restore via `bento::shell::restore_and_focus_window`). Uninstall (`confirm_uninstall_overlay`, with optional `--purge` checkbox) and bucket removal (`confirm_remove_bucket_overlay`) are built with `bento::ui::confirm_dialog`. Window close respects `CloseBehavior` (`Ask` / `Tray` / `Exit`), window size/position is remembered via `bento::shell::remember_window_placement`, Scoop indexing/task progress is mirrored to the OS taskbar via `bento::shell::set_window_progress` / `clear_window_progress`, and async action buttons surface busy state via `bento::ui::action_busy`. Title bar right controls use `bento::shell::title_bar_right_with_theme`.
+4. **Cross-Platform Directory Opening**: Delegates via `bento::shell::open_directory` and `bento::shell::open_local_file` (`explorer` / `open` / `xdg-open`), keeping OS file-manager behavior consistent across NSH 0.7.1 desktop targets.
 5. **Unified Family Icons & Brand Assets**: All 24×24 `currentColor` stroke icons are centralized in `bento::ui::icons` and re-exported by `src/ui/icons.rs` with zero local stroke SVGs. Sundae owns only its full-color brand mark (`assets/logo-mark.svg`, rendered via `bento::ui::icons::brand_mark_svg`), desktop icon (`assets/logo.svg`, `assets/icon.png`), and 64×64 tray icon (`assets/tray-icon.png`).
 
 ---
@@ -90,7 +90,9 @@ All colors in presentation code are consumed strictly via `nsh_base::theme()` (a
 | **Terminal Drawer (`terminal_drawer.rs`)** | Drawer open / close | Conditional mount (`when`) with clean border separation; log stream virtualized with zero per-line animation | Instant show/hide | [ ] |
 | **Dialogs (`dialogs.rs`, `bento`)** | Package Detail, Confirm Uninstall, Confirm Remove Bucket, Confirm Close, About | `bento::ui::modal_dialog` scrim fade + dialog surface entrance (`slow`, ease-out; exit `fast`) | Instant appear/dismiss | [ ] |
 | **Notice Toast (`shell.rs`, `bento`)** | Toast appear / auto-dismiss (3s / 6s) | `bento::ui::notice_toast` bottom-edge floating reveal (`base`, ease-out) | Instant appear/dismiss | [ ] |
-| **Loading / Indexing** | Background Rayon scan / running Scoop task | Status text + warning badge in title bar & sidebar footer; no blocking modal or spinning CPU loop | Static status label | [ ] |
+| **Global Controls (`bento::ui`)** | Hover/focus tooltip entrance & exit | `bento::ui::hint_tooltip` opacity + scale (`0.95 -> 1.0`, `instant`) | Instant show/hide | [ ] |
+| **Global Controls (`bento::ui`)** | Async button busy state (`action_busy`, spinning refresh icon) | Disabled opacity (`0.4`) + native `busy` accessibility state; refresh icon spins while indexing | Static disabled/busy state (no spin) | [ ] |
+| **Loading / Indexing** | Background Rayon scan / running Scoop task | Status text + warning badge in title bar & sidebar footer + native OS taskbar progress (`Indeterminate` / `Normal` / `Error`) via `bento::shell::set_window_progress` | Static status label + taskbar progress | [ ] |
 | **Drag / Swipe / Live Shader** | None on Sundae screens | N/A (Sundae has no drag-reorder lists or continuous shaders) | N/A | [ ] |
 
 ---
